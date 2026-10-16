@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader>
+    <fileDesc>
+      <titleStmt><title>Tiny test dictionary</title></titleStmt>
+      <publicationStmt>
+        <availability status="free"><p>GPLv3 — test fixture</p></availability>
+      </publicationStmt>
+      <sourceDesc><p>Hand-written for the test suite.</p></sourceDesc>
+    </fileDesc>
+  </teiHeader>
+  <text>
+    <body>
+      <entry xml:id="Haus.1">
+        <form><orth>Haus</orth></form>
+        <gramGrp>
+          <gen>neut</gen>
+          <pos>n</pos>
+        </gramGrp>
+        <sense>
+          <cit type="trans">
+            <quote xml:lang="en">house</quote>
+            <gramGrp><pos>n</pos></gramGrp>
+          </cit>
+          <cit type="trans">
+            <quote xml:lang="en">home</quote>
+          </cit>
+        </sense>
+      </entry>
+      <entry xml:id="Mädchen.1">
+        <form><orth>Mädchen</orth></form>
+        <gramGrp><pos>n</pos></gramGrp>
+        <sense>
+          <cit type="trans">
+            <quote xml:lang="en">girl</quote>
+          </cit>
+        </sense>
+      </entry>
+      <entry xml:id="laufen.1">
+        <form><orth>laufen</orth></form>
+        <gramGrp><pos>v</pos></gramGrp>
+        <sense>
+          <cit type="trans">
+            <quote xml:lang="en">to run</quote>
+          </cit>
+          <cit type="example">
+            <quote xml:lang="de">Ich laufe schnell.</quote>
+          </cit>
+        </sense>
+      </entry>
+      <entry xml:id="falsch.1">
+        <form><orth>nurform</orth></form>
+        <sense>
+          <cit type="example">
+            <quote xml:lang="de">Ohne Übersetzung.</quote>
+          </cit>
+        </sense>
+      </entry>
+    </body>
+  </text>
+</TEI>
