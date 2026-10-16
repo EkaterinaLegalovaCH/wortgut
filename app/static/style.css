@@ -1,0 +1,267 @@
+/* Wortgut — hand-written CSS. No build step, no CDN, works fully offline. */
+
+:root {
+  --ink: #1c1b19;
+  --ink-soft: #5f5b55;
+  --paper: #fbf8f3;
+  --card: #ffffff;
+  --line: #e2dcd2;
+  --accent: #7a4b22;
+  --accent-soft: #f2e7da;
+  --saved: #1f6f4a;
+  --saved-soft: #dff0e6;
+  --danger: #9a2b2b;
+  --reading-size: 1.35rem;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Source Serif 4", "Noto Serif", Georgia, serif;
+  line-height: 1.6;
+}
+
+.site-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+  flex-wrap: wrap;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.site-header nav a {
+  margin-left: 1rem;
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+.site-header nav a:hover { color: var(--accent); text-decoration: underline; }
+
+.page {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+}
+
+h1 { font-size: 1.6rem; line-height: 1.25; margin: 0 0 0.5rem; }
+h2 { font-size: 1.2rem; margin: 2rem 0 0.5rem; }
+.lede { color: var(--ink-soft); margin-top: 0; }
+.meta { color: var(--ink-soft); font-size: 0.85rem; }
+.hint { color: var(--ink-soft); font-size: 0.8rem; font-weight: 400; }
+
+/* ---------- paste form ---------- */
+
+.paste-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 1.5rem;
+}
+
+.paste-form label { font-weight: 600; font-size: 0.9rem; margin-top: 0.6rem; }
+
+.paste-form input[type="text"],
+.paste-form textarea {
+  font: inherit;
+  color: inherit;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  width: 100%;
+}
+
+.paste-form textarea { resize: vertical; min-height: 10rem; }
+
+.paste-form button[type="submit"] {
+  margin-top: 1rem;
+  align-self: flex-start;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.6rem 1.4rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.paste-form button[type="submit"]:hover { background: #653c19; }
+
+/* ---------- text list ---------- */
+
+.text-list { list-style: none; padding: 0; margin: 0; }
+.text-list li {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.text-list a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.text-list a:hover { text-decoration: underline; }
+
+/* ---------- reader ---------- */
+
+.reading-page { max-width: 40rem; }
+
+.reader {
+  font-size: var(--reading-size);
+  line-height: 1.9;
+  margin: 1.5rem 0;
+  hyphens: auto;
+  /* Whitespace between tokens is real text, so paragraph breaks survive. */
+  white-space: pre-wrap;
+}
+
+.word {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0.05em 0.1em;
+  margin: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: inherit;
+}
+.word:hover, .word:focus-visible { background: var(--accent-soft); outline: none; }
+.word.saved { background: var(--saved-soft); color: var(--saved); font-weight: 600; }
+.word.saved:hover, .word.saved:focus-visible { background: #cfe8db; }
+
+.sample { font-size: 1rem; padding: 0.1em 0.4em; }
+
+.punct { white-space: pre-wrap; }
+
+.legend { color: var(--ink-soft); font-size: 0.85rem; }
+
+/* ---------- popup ---------- */
+
+.popup {
+  position: absolute;
+  z-index: 10;
+  width: min(22rem, calc(100vw - 2rem));
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(28, 27, 25, 0.18);
+  padding: 0.85rem 1rem 1rem;
+}
+
+.popup[hidden] { display: none; }
+
+.popup-head { display: flex; align-items: center; gap: 0.5rem; }
+.popup-head strong { font-size: 1.1rem; }
+
+.tag {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+
+.popup .close {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+
+.popup-lemma { margin: 0.4rem 0 0; font-size: 0.9rem; color: var(--ink-soft); }
+.popup-translation { margin: 0.3rem 0 0; font-weight: 600; }
+.popup-translation ul { margin: 0; padding-left: 1.1rem; font-weight: 600; }
+.popup-translation li { margin: 0.1rem 0; }
+.popup-translation.miss { font-weight: 400; color: var(--danger); }
+.popup-freq { margin: 0.3rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
+
+.popup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+.popup-actions label { flex-basis: 100%; }
+.popup-actions input {
+  flex: 1 1 8rem;
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 0;
+}
+.popup-actions button {
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0.4rem 0.9rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.popup-actions button:hover { background: #653c19; }
+
+.popup-status { min-height: 1.1rem; margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--saved); }
+.popup-status.error { color: var(--danger); }
+
+/* ---------- word list ---------- */
+
+.word-list { list-style: none; padding: 0; margin: 0; }
+.word-list li { padding: 0.9rem 0; border-bottom: 1px solid var(--line); }
+
+.word-row { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.word-main { display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
+.lemma { font-size: 1.05rem; }
+.translation { color: var(--ink); }
+.word-meta { color: var(--ink-soft); font-size: 0.8rem; }
+
+.context { color: var(--ink-soft); font-style: italic; margin: 0.4rem 0 0.2rem; }
+
+.inline-form { margin: 0.3rem 0 0; }
+.inline-form button.danger {
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--danger);
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  padding: 0.15rem 0.6rem;
+  cursor: pointer;
+}
+.inline-form button.danger:hover { background: #f7e4e4; }
+
+.empty { color: var(--ink-soft); }
+
+/* ---------- phone ---------- */
+
+@media (max-width: 480px) {
+  :root { --reading-size: 1.2rem; }
+  .page { padding: 1rem 0.9rem 3rem; }
+  .reader { line-height: 1.8; }
+  .popup { width: calc(100vw - 1.2rem); }
+}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Wortgut — paste a German text{% endblock %}
+
+{% block content %}
+<h1>Read German, keep what you meet</h1>
+<p class="lede">
+  Paste any German text. Every word is tappable — you get its lemma,
+  translation and frequency rank instantly, and you can keep it in your own list.
+</p>
+
+<form class="paste-form" method="post" action="/texts">
+  <label for="title">Title <span class="hint">(optional)</span></label>
+  <input type="text" id="title" name="title" maxlength="300" placeholder="e.g. Der Wolf und die sieben jungen Geißlein">
+
+  <label for="text">Text</label>
+  <textarea id="text" name="text" rows="12" required
+            placeholder="Hier den deutschen Text einfügen…"></textarea>
+
+  <label for="source_note">Source note <span class="hint">(optional — where it came from)</span></label>
+  <input type="text" id="source_note" name="source_note" maxlength="500" placeholder="e.g. Grimms Märchen, public domain">
+
+  <button type="submit">Read it</button>
+</form>
+
+{% if texts %}
+<section class="recent">
+  <h2>Recent texts</h2>
+  <ul class="text-list">
+    {% for text, word_count in texts %}
+    <li>
+      <a href="/texts/{{ text.id }}">{{ text.title }}</a>
+      <span class="meta">{{ word_count }} words · {{ text.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}My words — Wortgut{% endblock %}
+
+{% block content %}
+<h1>My words</h1>
+
+{% if not words %}
+  <p class="empty">
+    Nothing saved yet. Open a text, tap a word, and hit <strong>Save word</strong>.
+  </p>
+{% else %}
+  <p class="meta">{{ words|length }} saved word{{ "s" if words|length != 1 else "" }}</p>
+  <ul class="word-list">
+    {% for word in words %}
+    <li>
+      <div class="word-row">
+        <div class="word-main">
+          <strong class="lemma">{{ word.lemma }}</strong>
+          <span class="translation">{{ word.translation or "—" }}</span>
+        </div>
+        <div class="word-meta">
+          added {{ word.added_at.strftime("%Y-%m-%d") }}
+          · met {{ word.encounters }}×
+        </div>
+      </div>
+      {% if word.context_sentence %}
+        <p class="context">“{{ word.context_sentence }}”</p>
+      {% endif %}
+      <form method="post" action="/words/{{ word.id }}/delete" class="inline-form">
+        <button type="submit" class="danger">Delete</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

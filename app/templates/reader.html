@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ text.title }} — Wortgut{% endblock %}
+{% block main_class %}page reading-page{% endblock %}
+
+{% block content %}
+<header class="reader-header">
+  <h1>{{ text.title }}</h1>
+  <p class="meta">
+    Added {{ text.created_at.strftime("%Y-%m-%d %H:%M") }}
+    {% if text.source_note %} · {{ text.source_note }}{% endif %}
+    · <a href="/">Paste another text</a>
+  </p>
+</header>
+
+<article class="reader" data-text-id="{{ text.id }}">
+  {%- for token in rendered -%}
+    {%- if token.is_word -%}
+      <button type="button"
+              class="word{% if token.saved %} saved{% endif %}"
+              data-position="{{ token.position }}"
+              data-lemma="{{ token.lemma }}">{{ token.surface }}</button>
+    {%- else -%}
+      <span class="punct">{{ token.surface }}</span>
+    {%- endif -%}
+    {{ token.whitespace }}
+  {%- endfor -%}
+</article>
+
+<p class="legend">
+  <span class="word saved sample">saved</span> = already in your word list ·
+  tap any word for its translation · Esc closes the popup
+</p>
+
+<div id="popup" class="popup" hidden>
+  <div class="popup-head">
+    <strong id="popup-surface"></strong>
+    <span id="popup-pos" class="tag"></span>
+    <button type="button" id="popup-close" class="close" aria-label="Close">×</button>
+  </div>
+  <p id="popup-lemma" class="popup-lemma"></p>
+  <div id="popup-translation" class="popup-translation"></div>
+  <p id="popup-freq" class="popup-freq"></p>
+  <div class="popup-actions">
+    <label for="popup-input" class="hint">Your translation</label>
+    <input type="text" id="popup-input" maxlength="500" placeholder="type one if the dictionary missed">
+    <button type="button" id="popup-save">Save word</button>
+  </div>
+  <p id="popup-status" class="popup-status" role="status"></p>
+</div>
+{% endblock %}
