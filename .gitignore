@@ -1,0 +1,13 @@
+# Downloaded source data and the SQLite database live here at runtime.
+# The dictionary and frequency files are large and licence-bound, and the
+# database holds personal reading data — neither belongs in git.
+data/
+
+# Local environment overrides (never commit real values)
+.env
+
+# Python build/runtime noise
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
