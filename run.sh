@@ -34,8 +34,10 @@ uv sync --quiet --offline 2>/dev/null || uv sync --quiet
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
 
+# --no-sync: the sync above already ran, and `uv run` would otherwise re-check
+# the direct-URL model online, which fails when the network is off.
 if [[ "${1:-}" == "--reload" ]]; then
-  exec uv run uvicorn app.main:app --host "$HOST" --port "$PORT" --reload
+  exec uv run --no-sync uvicorn app.main:app --host "$HOST" --port "$PORT" --reload
 fi
 
-exec uv run uvicorn app.main:app --host "$HOST" --port "$PORT"
+exec uv run --no-sync uvicorn app.main:app --host "$HOST" --port "$PORT"
