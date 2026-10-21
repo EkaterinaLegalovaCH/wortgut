@@ -25,7 +25,11 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 # Keep the environment in sync without needing a separate step.
-uv sync --quiet
+# Try the local cache first: the app must start with the network off, and the
+# model is a direct-URL dependency that uv would otherwise re-check online on
+# every launch. If the cache is incomplete (first run, changed lockfile), fall
+# back to a normal online sync.
+uv sync --quiet --offline 2>/dev/null || uv sync --quiet
 
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
