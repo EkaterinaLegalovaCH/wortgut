@@ -41,22 +41,20 @@ Requirements: [`uv`](https://docs.astral.sh/uv/getting-started/installation/) an
 git clone https://github.com/EkaterinaLegalovaCH/wortgut.git
 cd wortgut
 
-# 1. Python 3.13 environment (uv reads .python-version and pyproject.toml)
+# 1. Python 3.13 environment. This also installs the German spaCy model
+#    (de_core_news_sm, ~14 MB) because it is a locked dependency.
 uv sync
 
-# 2. German spaCy model (~14 MB, one time)
-uv run python -m spacy download de_core_news_sm
-
-# 3. Source data (~470 MB, one time, cached in data/ which is gitignored)
+# 2. Source data (~470 MB, one time, cached in data/ which is gitignored)
 ./scripts/fetch_data.sh
 
-# 4. Import the data — run these one after the other, never at the same time:
+# 3. Import the data — run these one after the other, never at the same time:
 #    SQLite accepts a single writer, so concurrent imports fail with
 #    "database is locked" (they are also both re-runnable, so just retry).
 uv run python scripts/import_freq.py     # ~0.5 s  → 50,000 words
 uv run python scripts/import_dict.py     # ~26 s   → 517,000 dictionary entries
 
-# 5. Run it
+# 4. Run it
 ./run.sh                                 # http://127.0.0.1:8000
 ```
 

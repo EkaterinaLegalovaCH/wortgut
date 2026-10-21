@@ -11,7 +11,12 @@ dependencies = [
     "jinja2>=3.1",
     "python-multipart>=0.0.12",
     "spacy>=3.8",
+    # German model: pinned wheel so `uv sync` installs it and never prunes it.
+    "de-core-news-sm",
 ]
+
+[tool.uv.sources]
+de-core-news-sm = { url = "https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.8.0/de_core_news_sm-3.8.0-py3-none-any.whl" }
 
 [dependency-groups]
 dev = [

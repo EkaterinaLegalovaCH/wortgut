@@ -31,7 +31,7 @@ def load_nlp() -> Language:
         except OSError as exc:  # spaCy raises OSError for a missing model
             raise ModelNotInstalled(
                 f"spaCy model '{MODEL_NAME}' is not installed. "
-                f"Run: uv run python -m spacy download {MODEL_NAME}"
+                f"Run: uv sync   (the model is a locked dependency; do not install it by hand)"
             ) from exc
     return _nlp
 

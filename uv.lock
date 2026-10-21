@@ -176,6 +176,14 @@ wheels = [
 ]
 
 [[package]]
+name = "de-core-news-sm"
+version = "3.8.0"
+source = { url = "https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.8.0/de_core_news_sm-3.8.0-py3-none-any.whl" }
+wheels = [
+    { url = "https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.8.0/de_core_news_sm-3.8.0-py3-none-any.whl", hash = "sha256:fec69fec52b1780f2d269d5af7582a5e28028738bd3190532459aeb473bfa3e7" },
+]
+
+[[package]]
 name = "fastapi"
 version = "0.143.2"
 source = { registry = "https://pypi.org/simple" }
@@ -780,6 +788,7 @@ name = "wortgut"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "de-core-news-sm" },
     { name = "fastapi" },
     { name = "jinja2" },
     { name = "python-multipart" },
@@ -796,6 +805,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "de-core-news-sm", url = "https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.8.0/de_core_news_sm-3.8.0-py3-none-any.whl" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "python-multipart", specifier = ">=0.0.12" },
