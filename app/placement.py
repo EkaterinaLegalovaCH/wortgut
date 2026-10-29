@@ -91,22 +91,40 @@ ALLOWED_POS: frozenset[str] = frozenset({"NOUN", "VERB", "ADJ"})
 # hidden heuristic — extend it when a use-test turns up something similar.
 POOL_BLOCKLIST: frozenset[str] = frozenset(
     {
+        # English and brand words the subtitle corpus mixes in
         "talk",
         "dyke",
         "monsieur",
         "chevy",
         "ecstasy",
         "ciao",
-        "pussy",
-        "pimmel",
+        # loaded political vocabulary
         "führer",
         "nazi",
         "hitler",
         "jude",
         "russen",
-        "schwuchtel",
-        "hurensohn",
+        # profanity and slurs — a vocabulary test is not the place for them
+        "arsch",
+        "arschloch",
+        "arschgesicht",
         "scheiße",
+        "scheisse",
+        "scheiß",
+        "fick",
+        "ficken",
+        "gefickt",
+        "hure",
+        "hurensohn",
+        "schwuchtel",
+        "fotze",
+        "wichser",
+        "titten",
+        "pimmel",
+        "pussy",
+        "penner",
+        "mistkerl",
+        "vollidiot",
     }
 )
 
