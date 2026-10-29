@@ -202,7 +202,7 @@ class Profile:
 
 
 def select_items(session: Session, seed: int) -> list[Item]:
-    """The 40 items for one run: 5 real words per band plus every nonword.
+    """The 40 items for one run: 7/7/7/7/6/6 real words across the six bands.
 
     Deterministic for a given seed and pool: candidates are sorted by rank
     before sampling, so the same seed produces the same set on the same data.
