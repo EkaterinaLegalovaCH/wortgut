@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Your estimate — Wortgut{% endblock %}
+
+{% block content %}
+<h1>Your reading-level estimate</h1>
+
+<p class="estimate">
+  <strong>{{ profile.label }}</strong>
+  <span class="meta">estimated reading level · not a certified test</span>
+</p>
+
+{% if profile.overclaims %}
+  <p class="flag flag-warn">
+    <strong>Possible overclaiming.</strong>
+    You said you knew {{ profile.nonword_hits }} of the {{ profile.nonword_total }} invented
+    words. Those cannot be known, so the estimate is widened to account for guessing.
+  </p>
+{% endif %}
+{% if profile.thin_sample %}
+  <p class="flag">
+    <strong>Thin sample.</strong>
+    At least one band has fewer than three answers, so the estimate is widened
+    rather than narrowed. Answering every word gives a tighter range.
+  </p>
+{% endif %}
+
+<h2>By frequency band</h2>
+<p class="meta">
+  A band counts as known when at least 60% of its answered words are claimed —
+  and at least three were answered.
+</p>
+
+<table class="band-table">
+  <thead>
+    <tr>
+      <th scope="col">Frequency band</th>
+      <th scope="col">Answered</th>
+      <th scope="col">Known</th>
+      <th scope="col">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for band in profile.bands %}
+    <tr>
+      <td>{{ band.low }}–{{ band.high }}</td>
+      <td>{{ band.attempted }}</td>
+      <td>{{ band.known }}</td>
+      <td>
+        {% if not band.enough_data %}
+          <span class="status-thin">not enough data</span>
+        {% elif band.known_band %}
+          <span class="status-known">known</span>
+        {% else %}
+          <span class="status-unknown">not yet known</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="meta">
+  Bands known: {{ profile.known_bands }} of {{ profile.bands|length }}
+  · invented words claimed: {{ profile.nonword_hits }} of {{ profile.nonword_total }}
+  · run #{{ run.id }}, seed {{ run.seed }}
+</p>
+
+<h2>The words you saw</h2>
+{% for band in profile.bands %}
+  <details class="band-detail">
+    <summary>Ranks {{ band.low }}–{{ band.high }} ({{ band.known }}/{{ band.attempted }} known)</summary>
+    <ul class="detail-list">
+      {% for word, answer in by_band.get(band.index, []) %}
+      <li>
+        <span class="detail-word">{{ word }}</span>
+        {% if answer is none %}<span class="meta">unanswered</span>
+        {% elif answer %}<span class="status-known">yes</span>
+        {% else %}<span class="status-unknown">no</span>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+{% endfor %}
+
+<p class="notice">
+  {{ profile.disclaimer }}
+</p>
+
+<p>
+  <a href="/placement">Take the check again</a>
+  · <a href="/">Back to reading</a>
+</p>
+{% endblock %}

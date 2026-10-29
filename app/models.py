@@ -91,5 +91,54 @@ class UserWord(Base):
     first_seen_text_id: Mapped[Optional[int]] = mapped_column(ForeignKey("texts.id"))
 
 
+class PlacementRun(Base):
+    """One completed placement check: the summary W-7 will read.
+
+    Kept out of `user_words` on purpose — the check is read-only with respect to
+    the learner's vocabulary; only this table and `placement_responses` grow.
+    """
+
+    __tablename__ = "placement_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    seed: Mapped[int] = mapped_column(Integer)  # reproduces the exact item set
+    label: Mapped[str] = mapped_column(String(20))  # e.g. "A2" or "A1–B1"
+    level_low: Mapped[int] = mapped_column(Integer)  # index into LEVEL_NAMES
+    level_high: Mapped[int] = mapped_column(Integer)
+    known_bands: Mapped[int] = mapped_column(Integer)  # 0-6 bands passed
+    nonword_hits: Mapped[int] = mapped_column(Integer)
+    nonword_total: Mapped[int] = mapped_column(Integer)
+    overclaims: Mapped[bool] = mapped_column(Boolean, default=False)
+    thin_sample: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    responses: Mapped[list["PlacementResponse"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="PlacementResponse.position",
+    )
+
+
+class PlacementResponse(Base):
+    """One word shown in one run, with what the learner said about it."""
+
+    __tablename__ = "placement_responses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("placement_runs.id"), index=True)
+    position: Mapped[int] = mapped_column(Integer)  # display order in the run
+    word: Mapped[str] = mapped_column(String(200))
+    band_index: Mapped[Optional[int]] = mapped_column(Integer)  # None for nonwords
+    is_nonword: Mapped[bool] = mapped_column(Boolean, default=False)
+    # None means the item was left unanswered; that is data, not an error.
+    claimed_known: Mapped[Optional[bool]] = mapped_column(Boolean)
+
+    run: Mapped[PlacementRun] = relationship(back_populates="responses")
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "position", name="uq_placement_responses_run_position"),
+    )
+
+
 # The reader joins user_words against token lemmas on every page load.
 Index("ix_tokens_text_lemma", Token.text_id, Token.lemma)

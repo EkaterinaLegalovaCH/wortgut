@@ -257,6 +257,81 @@ h2 { font-size: 1.2rem; margin: 2rem 0 0.5rem; }
 
 .empty { color: var(--ink-soft); }
 
+/* ---------- placement check ---------- */
+
+.notice {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding: 0.7rem 0.9rem;
+  font-size: 0.9rem;
+  color: var(--ink);
+  margin: 1.2rem 0;
+}
+
+.placement-form { margin-top: 1.5rem; }
+
+.placement-items { list-style: none; padding: 0; margin: 0 0 1rem; }
+
+.placement-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.placement-word { font-size: 1.1rem; }
+
+.placement-answers { display: flex; gap: 1rem; }
+.placement-answers label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.placement-form button[type="submit"] {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.6rem 1.4rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.placement-form button[type="submit"]:hover { background: #653c19; }
+
+.estimate { display: flex; align-items: baseline; gap: 0.8rem; flex-wrap: wrap; margin: 0.4rem 0 1rem; }
+.estimate strong { font-size: 2.2rem; color: var(--accent); line-height: 1; }
+
+.flag {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.9rem;
+  margin: 0.6rem 0;
+  background: var(--card);
+}
+.flag-warn { border-color: var(--danger); }
+
+.band-table { width: 100%; border-collapse: collapse; margin: 0.6rem 0 1rem; font-size: 0.95rem; }
+.band-table th, .band-table td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--line); }
+.band-table th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-soft); }
+
+.status-known { color: var(--saved); font-weight: 600; }
+.status-unknown { color: var(--ink-soft); }
+.status-thin { color: var(--accent); }
+
+.band-detail { border-bottom: 1px solid var(--line); padding: 0.4rem 0; }
+.band-detail summary { cursor: pointer; font-size: 0.95rem; }
+.detail-list { list-style: none; padding: 0.3rem 0 0.3rem 0.8rem; margin: 0; font-size: 0.9rem; }
+.detail-list li { display: flex; gap: 0.6rem; justify-content: space-between; padding: 0.15rem 0; }
+.detail-word { font-family: inherit; }
+
 /* ---------- phone ---------- */
 
 @media (max-width: 480px) {

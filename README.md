@@ -26,6 +26,9 @@ genuinely usable end to end.
 | Word list: lemma, translation, context, date, delete | `GET /words` | ✅ |
 | Liveness / readiness | `GET /health`, `GET /ready` | ✅ `/ready` names exactly what is missing |
 | Manual translation when the dictionary misses | popup input | ✅ compounds like *Geißlein* have no entry — you type your own |
+| Placement check: 40 words, per-band result | `GET /placement` | ✅ M1 — an estimate, not a certificate (see below) |
+| Score a run, store the profile | `POST /placement` | ✅ read-only for your vocabulary |
+| Result: label range, band table, flags | `GET /placement/{id}` | ✅ latest run at `/placement/latest` |
 
 Not in M0: accounts, deployment, placement test, coverage scoring, vocabulary
 recycling, stats, TTS, EPUB import. See *Scope* below.
@@ -106,6 +109,8 @@ Two steps are deliberately separated:
 | `app/layout.py` | Rebuilding readable text from tokens; finding the surrounding sentence |
 | `app/routes/pages.py` | HTML pages (home, reader, word list) |
 | `app/routes/api.py` | JSON endpoints + `/health` + `/ready` |
+| `app/placement.py` | Item selection, scoring, label mapping — the placement check's logic |
+| `app/routes/placement.py` | Placement pages: form, submit, result |
 | `scripts/import_dict.py` | Streams the 450 MB TEI dictionary into `dict_entries` |
 | `scripts/import_freq.py` | Frequency list into `word_freq` |
 
@@ -118,6 +123,11 @@ Two steps are deliberately separated:
 - `word_freq(word, rank, count)` — rank 1 = most frequent
 - `user_words(id, lemma, translation, status, added_at, encounters,
   last_seen_at, context_sentence, first_seen_text_id)` — one row per lemma
+- `placement_runs(id, created_at, seed, label, level_low, level_high,
+  known_bands, nonword_hits, nonword_total, overclaims, thin_sample)` — one row
+  per completed check
+- `placement_responses(id, run_id, position, word, band_index, is_nonword,
+  claimed_known)` — one row per word shown; `NULL` means unanswered
 
 ---
 
@@ -162,6 +172,53 @@ signal the later recycling step needs, so the data is already accumulating.
 
 ---
 
+## Placement check (M1)
+
+Open `/placement` from the home page or the navigation. You get 40 words, one
+question each — *do you know this word?* — and an estimate of your reading level
+at the end. It takes about two minutes and works offline like everything else.
+
+**What the 40 items are.** Five words from each of six frequency bands over
+`word_freq` (`1–1,000`, `1,001–3,000`, `3,001–8,000`, `8,001–15,000`,
+`15,001–30,000`, `30,001–50,000`), plus ten invented words with German-looking
+morphology (`Brelmicht`, `Grumseln`, …). The nonwords are the calibration: nobody
+knows them, so claiming them is guessing. A test asserts that none of them
+appears in `dict_entries` or `word_freq` — an invented word that is accidentally
+real would break the calibration silently.
+
+**How a run is scored.** A band counts as known when at least 60% of its answered
+words are claimed *and* at least three of its words were answered. The number of
+known bands (0–6) is looked up in a table to give a level (`A1`, `A2`, `B1`,
+`B2`). Two things widen the result instead of sharpening it:
+
+- **overclaiming** — three or more invented words claimed as known sets a flag
+  and widens the range a level in each direction;
+- **a thin sample** — any band with fewer than three answers is shown as "not
+  enough data" and widens the range the same way.
+
+The label is always a range or a single level with the disclaimer attached, and
+the result page always shows the per-band table underneath it. There is no code
+path that prints a bare level.
+
+**What is stored.** The profile, not just the label: `placement_runs` holds the
+seed, the label and range, bands known, nonword hits and both flags;
+`placement_responses` holds every word with the answer (`NULL` when skipped). The
+seed reproduces the exact item set, so a result can be re-derived. Nothing is
+written to `user_words`, `texts` or `tokens` — a test runs a full check and
+asserts those counts are unchanged. Seeding the known-word model from a profile
+is W-7's job, not this card's.
+
+**Deliberate limits.** Yes/no self-report measures recognition, not production;
+it can overstate active knowledge. Forty words give a coarse estimate: it
+distinguishes broad ranges honestly and cannot resolve half-levels. Compound
+knowers are slightly under-credited, because a compound that is missing from the
+dictionary still counts as a real word here (the word comes from the frequency
+list, so the reader would recognise it even if the dictionary would not gloss it).
+No adaptive difficulty, no timing, no multiple choice — none of that earns its
+complexity at this scale.
+
+---
+
 ## Data sources and licences
 
 Neither file is committed to this repository; `scripts/fetch_data.sh` downloads
@@ -203,7 +260,7 @@ present. No secrets are used anywhere in M0.
 
 ## Tests
 
-`uv run pytest` — 51 tests, no network, no fixtures needed beyond the repo.
+`uv run pytest` — 83 tests, no network, no fixtures needed beyond the repo.
 
 - **Import parsers** against a tiny hand-written TEI fixture: lemmas, POS,
   multiple translations, umlauts, entries with no translation, idempotent
@@ -218,6 +275,13 @@ present. No secrets are used anywhere in M0.
   (`Kinder` → `kind` → rank), dictionary miss, manual translation, encounter
   counting, saved-word marking, delete, `/health`, `/ready`, static assets —
   all through the real HTTP stack against a temp database.
+- **Placement check**: band-count-to-label table (every possible count),
+  overclaiming (three invented words widen the range and set the flag), thin
+  bands (fewer than three answers → "not enough data" + widened range),
+  unanswered items not counted as "no", seeded item selection reproducing the
+  same set, real items drawn from their own band, nonwords absent from both
+  data tables, and a guard that `user_words`/`texts`/`tokens` counts are
+  identical before and after a run.
 
 ---
 
@@ -243,14 +307,17 @@ Documented rather than fixed, per the milestone plan:
   change before deploy.
 - **Rare words have no frequency rank** (`Geiß`): the frequency list is
   subtitle-derived, so a fairytale word may simply not be in the top 50k.
+- **The placement check is a coarse self-report.** Forty yes/no items over six
+  bands give a wide estimate, not a CEFR measurement; the nonword calibration
+  catches guessing, not overconfidence about real words. See the section above.
 
 ---
 
 ## Scope
 
-M0 is the walking skeleton. The full project plan (placement check, known-word
-model, coverage scoring, level-matched library, vocabulary recycling, stats,
-deploy) lives in the project folder as `wortgut-brief.md` and
-`wortgut-kanban.md`, milestone by milestone. Next up is M1: a placement check
-that seeds the known-word model, coverage scoring per text, and a seeded library
-of public-domain German texts.
+M0 is the walking skeleton; M1 adds the level-aware parts. The placement check
+(above) is the first M1 card. The full project plan (known-word model, coverage
+scoring, level-matched library, vocabulary recycling, stats, deploy) lives in the
+project folder as `wortgut-brief.md` and `wortgut-kanban.md`, milestone by
+milestone. Next: seeding the known-word model from a stored profile and showing
+coverage per text.

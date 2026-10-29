@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Placement check — Wortgut{% endblock %}
+
+{% block content %}
+<h1>How much German do you already know?</h1>
+<p class="lede">
+  {{ items|length }} words, one question each: <em>do you know this word?</em>
+  They are drawn from {{ band_count }} frequency bands, from the most common words
+  to rarer ones, mixed with a few invented words that look German.
+</p>
+
+<p class="notice">
+  {{ disclaimer }}
+</p>
+
+{% if latest %}
+  <p class="meta">
+    Last check: <a href="/placement/{{ latest.id }}">{{ latest.label }}</a>
+    on {{ latest.created_at.strftime("%Y-%m-%d %H:%M") }}.
+  </p>
+{% endif %}
+
+<form method="post" action="/placement" class="placement-form">
+  <input type="hidden" name="seed" value="{{ seed }}">
+
+  <ol class="placement-items">
+    {% for item in items %}
+    <li class="placement-item">
+      <span class="placement-word">{{ item.word }}</span>
+      <span class="placement-answers">
+        <label>
+          <input type="radio" name="item{{ loop.index0 }}" value="yes"> yes
+        </label>
+        <label>
+          <input type="radio" name="item{{ loop.index0 }}" value="no"> no
+        </label>
+      </span>
+    </li>
+    {% endfor %}
+  </ol>
+
+  <p class="meta">You can leave words unanswered — a band with fewer than three
+  answers is reported as “not enough data” instead of being guessed at.</p>
+
+  <button type="submit">See my estimate</button>
+</form>
+{% endblock %}

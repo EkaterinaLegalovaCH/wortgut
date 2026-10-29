@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from .config import get_settings
 from .db import create_schema, get_engine
-from .routes import api, pages
+from .routes import api, pages, placement
 
 APP_DIR = Path(__file__).resolve().parent
 
@@ -38,4 +38,5 @@ app.state.templates = Jinja2Templates(directory=APP_DIR / "templates")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 app.include_router(pages.router)
+app.include_router(placement.router)
 app.include_router(api.router)
