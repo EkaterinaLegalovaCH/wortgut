@@ -29,6 +29,8 @@ genuinely usable end to end.
 | Placement check: 40 words, per-band result | `GET /placement` | ✅ M1 — an estimate, not a certificate (see below) |
 | Score a run, store the profile | `POST /placement` | ✅ read-only for your vocabulary |
 | Result: label range, band table, flags | `GET /placement/{id}` | ✅ latest run at `/placement/latest` |
+| Coverage per text: "% known · N new words" | reader + home | ✅ M1 — counted per distinct word |
+| Known-word statuses: new → learning → familiar → known | `word_status` table | ✅ seeded by the placement check, corrected by real use |
 
 Not in M0: accounts, deployment, placement test, coverage scoring, vocabulary
 recycling, stats, TTS, EPUB import. See *Scope* below.
@@ -113,10 +115,12 @@ Two steps are deliberately separated:
 | `app/routes/pages.py` | HTML pages (home, reader, word list) |
 | `app/routes/api.py` | JSON endpoints + `/health` + `/ready` |
 | `app/placement.py` | Item selection, scoring, label mapping — the placement check's logic |
+| `app/knowledge.py` | Statuses, seeding from a placement run, coverage per text |
 | `app/routes/placement.py` | Placement pages: form, submit, result |
 | `scripts/import_dict.py` | Streams the 450 MB TEI dictionary into `dict_entries` |
 | `scripts/import_freq.py` | Frequency list into `word_freq` |
 | `scripts/build_placement_pool.py` | Curates `placement_items`: real vocabulary only |
+| `scripts/seed_knowledge.py` | Re-seeds `word_status` from a stored placement run |
 
 ### Data model
 
@@ -137,6 +141,9 @@ Two steps are deliberately separated:
 - `placement_items(word, band_index, rank)` — the curated pool the placement
   check samples from; derived data, rebuilt by
   `scripts/build_placement_pool.py`
+- `word_status(lemma, status, band_index, source, encounters, updated_at)` —
+  the known-word model: one row per lemma the app has an opinion about,
+  `source` says where the value came from (`placement`, `lookup`, `save`)
 
 ---
 
@@ -242,6 +249,49 @@ complexity at this scale.
 
 ---
 
+## Known words and coverage (M1)
+
+Every lemma the app has an opinion about gets a status:
+
+| Status | Meaning |
+|---|---|
+| `new` | not met yet, or met once and not recognised |
+| `learning` | looked up, or saved — actively being learned |
+| `familiar` | recognised: either seeded from a passed frequency band, or met repeatedly without help |
+| `known` | seedable by policy; otherwise reached by repeated meetings |
+
+**Where the first values come from.** Submitting a placement check seeds
+`word_status` for the curated pool: words in bands the run passed become
+`familiar` (the default policy) and everything else stays `new`. Two deliberate
+choices sit behind that:
+
+- **The bands, not the label.** Seeding reads `placement_responses` and
+  recomputes the per-band profile. A single derived label like "A1" must never
+  decide the status of thousands of words.
+- **`familiar`, not `known`.** The check is a self-report over 40 items, so it
+  earns a "probably recognised", not a firm "known". Real meetings promote a word
+  (`familiar` → `known` after three encounters); tapping it for a translation
+  demotes it immediately.
+
+`SEED_POLICY` in `app/knowledge.py` switches this: `known` trusts the profile
+outright, `none` learns only from reading. `scripts/seed_knowledge.py --policy
+<name>` re-seeds an existing database.
+
+**Real evidence outranks the questionnaire.** A word looked up or saved keeps its
+status when the check is taken again, so re-calibrating the band estimate never
+erases what reading taught the model.
+
+**Coverage** is per text and per **distinct lemma**, not per token: `der`
+appearing nine times is one word to know. The reader and the text list both show
+`"% known · N new words"`. With no placement run and no saved or looked-up word,
+coverage reports *"no level yet"* instead of a 0% that would look like data.
+
+Note on tables: `user_words` is the learner's own list (saved words, with a
+status for display), `word_status` is the model behind coverage. Saving writes
+both through one function so they cannot drift.
+
+---
+
 ## Data sources and licences
 
 Neither file is committed to this repository; `scripts/fetch_data.sh` downloads
@@ -283,7 +333,7 @@ present. No secrets are used anywhere in M0.
 
 ## Tests
 
-`uv run pytest` — 105 tests, no network, no fixtures needed beyond the repo.
+`uv run pytest` — 123 tests, no network, no fixtures needed beyond the repo.
 
 - **Import parsers** against a tiny hand-written TEI fixture: lemmas, POS,
   multiple translations, umlauts, entries with no translation, idempotent

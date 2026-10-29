@@ -15,6 +15,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from ..db import get_session
+from ..knowledge import seed_from_placement
 from ..models import PlacementResponse, PlacementRun
 from ..placement import (
     DISCLAIMER,
@@ -100,6 +101,12 @@ async def placement_submit(request: Request, session: Session = Depends(get_sess
 
     profile = score(items, answers)
     run = save_run(session, seed=seed, items=items, answers=answers, profile=profile)
+
+    # A finished check is what seeds the known-word model: the bands it passed
+    # become the starting point for coverage. Real evidence (words looked up or
+    # saved) outranks this, so re-taking the check does not erase reading.
+    seed_from_placement(session, run)
+
     return RedirectResponse(url=f"/placement/{run.id}", status_code=303)
 
 

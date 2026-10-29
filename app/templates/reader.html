@@ -10,6 +10,16 @@
     {% if text.source_note %} · {{ text.source_note }}{% endif %}
     · <a href="/">Paste another text</a>
   </p>
+  <p class="coverage">
+    <strong>{{ coverage.summary }}</strong>
+    {% if coverage.has_baseline %}
+      <span class="hint">— counted per distinct word; {{ coverage.known_words }} of
+      {{ coverage.total_words }} are already familiar or known</span>
+    {% else %}
+      <span class="hint">— <a href="/placement">take the placement check</a> and this
+      becomes a real percentage instead of a guess</span>
+    {% endif %}
+  </p>
 </header>
 
 <article class="reader" data-text-id="{{ text.id }}">

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_engine, get_session
+from ..knowledge import record_lookup
 from ..lookup import lookup, save_user_word
 from ..models import DictEntry, TextRecord
 from ..pipeline import is_model_installed
@@ -73,6 +74,11 @@ def api_lookup(text_id: int, position: int, session: Session = Depends(get_sessi
     result = lookup(session, text_id, position)
     if result is None:
         raise HTTPException(status_code=404, detail="Token not found")
+
+    # Tapping a word is a knowledge signal: the learner needed it explained, so
+    # the model should not keep calling it familiar. Recorded here because this
+    # is the only place a lookup happens; it is a local write, not network I/O.
+    record_lookup(session, result.lemma)
 
     return {
         "surface": result.surface,

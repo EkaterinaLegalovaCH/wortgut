@@ -91,6 +91,29 @@ class UserWord(Base):
     first_seen_text_id: Mapped[Optional[int]] = mapped_column(ForeignKey("texts.id"))
 
 
+class WordStatus(Base):
+    """What the app believes about a single lemma's knowledge state.
+
+    Separate from `user_words` on purpose: `user_words` is the learner's own list
+    (words they chose to keep), while this table is the model the app runs on —
+    every lemma it has an opinion about, saved or not. A saved word appears in
+    both, written through one function so they cannot drift.
+
+    `status` is one of new → learning → familiar → known. `source` records where
+    the current value came from (placement seed, lookup, save) so a surprising
+    value can be traced instead of guessed at.
+    """
+
+    __tablename__ = "word_status"
+
+    lemma: Mapped[str] = mapped_column(String(200), primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), default="new", index=True)
+    band_index: Mapped[Optional[int]] = mapped_column(Integer)  # frequency band, when known
+    source: Mapped[str] = mapped_column(String(20), default="new")
+    encounters: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class PlacementItem(Base):
     """Curated pool of words the placement check may show.
 

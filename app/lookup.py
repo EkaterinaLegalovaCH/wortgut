@@ -4,11 +4,10 @@ Routes stay thin: they parse input, call one function, and render a result.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from .knowledge import save_word
 from .layout import DisplayToken, sentence_around
 from .models import DictEntry, TextRecord, Token, UserWord, WordFreq
 
@@ -110,32 +109,12 @@ def save_user_word(
 
     Saving the same lemma twice is not an error: it counts as another
     encounter, which is exactly the signal the recycling step will need later.
+
+    The write itself lives in `knowledge.save_word` so the learner's list and the
+    known-word model are updated together and cannot drift.
     """
     context = sentence_around(_display_tokens(session, text_id), position)
-    now = datetime.now(timezone.utc)
-
-    existing = session.scalar(select(UserWord).where(UserWord.lemma == lemma))
-    if existing is not None:
-        existing.encounters += 1
-        existing.last_seen_at = now
-        if translation.strip():
-            existing.translation = translation.strip()
-        session.commit()
-        return existing
-
-    word = UserWord(
-        lemma=lemma,
-        translation=translation.strip(),
-        status="new",
-        added_at=now,
-        encounters=1,
-        last_seen_at=now,
-        context_sentence=context,
-        first_seen_text_id=text_id,
-    )
-    session.add(word)
-    session.commit()
-    return word
+    return save_word(session, lemma=lemma, translation=translation, context=context, text_id=text_id)
 
 
 def delete_user_word(session: Session, word_id: int) -> bool:

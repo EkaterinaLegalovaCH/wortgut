@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_session
+from ..knowledge import text_coverage
 from ..lookup import delete_user_word, list_texts
 from ..models import TextRecord, Token, UserWord
 from ..pipeline import ModelNotInstalled, tokenize
@@ -22,8 +23,12 @@ def _templates(request: Request):
 
 @router.get("/")
 def home(request: Request, session: Session = Depends(get_session)):
+    texts = list_texts(session)
+    # Coverage per listed text: a handful of queries for a handful of texts, and
+    # it is the number that decides whether a text is worth reading right now.
+    coverage = {text.id: text_coverage(session, text.id) for text, _ in texts}
     return _templates(request).TemplateResponse(
-        request, "home.html", {"texts": list_texts(session)}
+        request, "home.html", {"texts": texts, "coverage": coverage}
     )
 
 
@@ -96,7 +101,13 @@ def reader(text_id: int, request: Request, session: Session = Depends(get_sessio
     ]
 
     return _templates(request).TemplateResponse(
-        request, "reader.html", {"text": text_record, "rendered": rendered}
+        request,
+        "reader.html",
+        {
+            "text": text_record,
+            "rendered": rendered,
+            "coverage": text_coverage(session, text_id),
+        },
     )
 
 
