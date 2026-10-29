@@ -121,10 +121,7 @@ def placement_result(run_id: int, request: Request, session: Session = Depends(g
 
     # Score the stored responses again for display: one scoring path, and the
     # page cannot drift from the persisted summary.
-    items = [
-        Item(word=response.word, band_index=response.band_index, is_nonword=response.is_nonword)
-        for response in responses
-    ]
+    items = [Item(word=response.word, band_index=response.band_index or 0) for response in responses]
     answers = [response.claimed_known for response in responses]
     profile = score(items, answers)
 

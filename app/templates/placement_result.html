@@ -9,13 +9,6 @@
   <span class="meta">estimated reading level · not a certified test</span>
 </p>
 
-{% if profile.overclaims %}
-  <p class="flag flag-warn">
-    <strong>Possible overclaiming.</strong>
-    You said you knew {{ profile.nonword_hits }} of the {{ profile.nonword_total }} invented
-    words. Those cannot be known, so the estimate is widened to account for guessing.
-  </p>
-{% endif %}
 {% if profile.thin_sample %}
   <p class="flag">
     <strong>Thin sample.</strong>
@@ -61,7 +54,6 @@
 
 <p class="meta">
   Bands known: {{ profile.known_bands }} of {{ profile.bands|length }}
-  · invented words claimed: {{ profile.nonword_hits }} of {{ profile.nonword_total }}
   · run #{{ run.id }}, seed {{ run.seed }}
 </p>
 

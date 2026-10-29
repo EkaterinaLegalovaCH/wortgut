@@ -1,29 +1,31 @@
 """Placement check — a quick vocabulary estimate, not a certified test.
 
-What it does: shows 40 words, 5 from each of six frequency bands plus 10
-nonwords, asks "do you know this?" for each, and turns the answers into a
-per-band profile plus a *reading-level estimate*.
+What it does: shows 40 real German words over six frequency bands, asks "do you
+know this?" for each, and turns the answers into a per-band profile plus a
+*reading-level estimate*.
 
 Where the words come from: not `word_freq` directly. Subtitle-derived frequency
 lists are full of names (`frodo`), interjections (`ahh`) and function words
-(`der`, `muss`), none of which say anything about vocabulary. `scripts/
-build_placement_pool.py` curates the pool once into `placement_items`: the word
-must be attested in the dictionary (so it is real vocabulary with a translation)
-and spaCy must call it a noun, verb or adjective. This module only samples the
-curated table.
+(`der`, `muss`), none of which say anything about vocabulary.
+`scripts/build_placement_pool.py` curates the pool once into `placement_items`:
+the word must be attested in the dictionary (so it is real vocabulary with a
+translation) and must not be tagged as a function word. This module only samples
+the curated table.
 
 Design notes:
-- The stored artifact is the profile (attempted / known per band, nonword
-  hits, seed, date). The level label is a deterministic table lookup over that
-  profile, so it can always be recomputed and never hides its input.
+- The stored artifact is the profile (attempted / known per band, seed, date).
+  The level label is a deterministic table lookup over that profile, so it can
+  always be recomputed and never hides its input.
 - Scoring is a pure function (`score`). Item selection is the only part that
   touches the database, which keeps the mapping testable with fake profiles.
 - The check writes nothing to `user_words`, `texts` or `tokens`: results live
   in their own two tables. W-7 owns known-word statuses and decides how a
   profile seeds them.
-- Nonwords are fixed, hand-picked strings with German-looking morphology. A
-  test asserts they are absent from both the dictionary and the frequency list,
-  because a nonword that exists in the data would silently break calibration.
+- Every item is a real word. An earlier version mixed in ten invented words to
+  catch guessing (claiming words that cannot exist). Ekaterina rejected them on
+  2026-10-29: for a self-check, pretending to test honesty is noise, not signal.
+  The columns that held those counts stay in the schema and are written as zero,
+  so an existing database needs no migration; the overclaim rule is gone.
 """
 
 from __future__ import annotations
@@ -36,7 +38,9 @@ from sqlalchemy.orm import Session
 
 from .models import PlacementItem, PlacementResponse, PlacementRun
 
-# Six frequency bands over word_freq ranks. Five items from each.
+# Six frequency bands over word_freq ranks, and how many words each one
+# contributes. 7+7+7+7+6+6 = 40: the denser bands carry one extra item each,
+# because they have far more words to sample from.
 BANDS: tuple[tuple[int, int], ...] = (
     (1, 1_000),
     (1_001, 3_000),
@@ -45,16 +49,14 @@ BANDS: tuple[tuple[int, int], ...] = (
     (15_001, 30_000),
     (30_001, 50_000),
 )
-ITEMS_PER_BAND = 5
+ITEMS_PER_BAND: tuple[int, ...] = (7, 7, 7, 7, 6, 6)
+TOTAL_ITEMS = sum(ITEMS_PER_BAND)
 
 # A band counts as "known" when at least this share of its answered items is
 # claimed known. A band with fewer than MIN_BAND_RESPONSES answers is thin and
 # reported as "not enough data" rather than guessed at.
 BAND_KNOWN_RATIO = 0.6
 MIN_BAND_RESPONSES = 3
-
-# Claiming three or more of the ten nonwords means the answers overclaim.
-OVERCLAIM_HITS = 3
 
 LEVEL_NAMES: tuple[str, ...] = ("A1", "A2", "B1", "B2")
 
@@ -72,27 +74,9 @@ KNOWN_BANDS_TO_LEVEL: dict[int, int] = {
 }
 
 DISCLAIMER = (
-    "This is an estimate of how much German vocabulary you recognise, based on "
-    "40 words across six frequency bands. It is not a certified CEFR test and "
-    "no level label from it should be quoted as an exam result."
-)
-
-# Fixed, checked against both data tables by tests/test_placement.py.
-# Chosen to look like ordinary modern German derivation (Klimper+werk,
-# Wusel+heit, Schnupper+ling) rather than fairy-tale words: a nonword that is
-# obviously fake is not a useful calibration item, because it is trivially
-# recognisable as a trick.
-NONWORDS: tuple[str, ...] = (
-    "Klimperwerk",
-    "Wischfeld",
-    "Schnellheft",
-    "Schlauferei",
-    "Wuselheit",
-    "Klickwerk",
-    "Schnupperling",
-    "Tippsel",
-    "Zupferei",
-    "Wackelheit",
+    f"This is an estimate of how much German vocabulary you recognise, based on "
+    f"{TOTAL_ITEMS} words across six frequency bands. It is not a certified CEFR "
+    f"test and no level label from it should be quoted as an exam result."
 )
 
 # Part-of-speech tags that count as real vocabulary for this purpose. Names,
@@ -141,8 +125,7 @@ class Item:
     """One word shown in the check."""
 
     word: str
-    band_index: int | None  # None for nonwords
-    is_nonword: bool
+    band_index: int
 
 
 @dataclass(frozen=True)
@@ -165,13 +148,10 @@ class Profile:
     """The scored result of one run."""
 
     bands: list[BandScore]
-    nonword_hits: int
-    nonword_total: int
     known_bands: int
     level_low: int
     level_high: int
     label: str
-    overclaims: bool
     thin_sample: bool
     flags: list[str] = field(default_factory=list)
 
@@ -193,13 +173,10 @@ class Profile:
                 }
                 for band in self.bands
             ],
-            "nonword_hits": self.nonword_hits,
-            "nonword_total": self.nonword_total,
             "known_bands": self.known_bands,
             "level_low": self.level_low,
             "level_high": self.level_high,
             "label": self.label,
-            "overclaims": self.overclaims,
             "thin_sample": self.thin_sample,
             "flags": list(self.flags),
             "disclaimer": self.disclaimer,
@@ -227,14 +204,12 @@ def select_items(session: Session, seed: int) -> list[Item]:
 
     for index in range(len(BANDS)):
         candidates = pool.get(index, [])
-        take = min(ITEMS_PER_BAND, len(candidates))
+        take = min(ITEMS_PER_BAND[index], len(candidates))
         for word in rng.sample(candidates, take):
-            items.append(Item(word=word, band_index=index, is_nonword=False))
+            items.append(Item(word=word, band_index=index))
 
-    items.extend(Item(word=word, band_index=None, is_nonword=True) for word in NONWORDS)
-
-    # A second, seed-derived stream shuffles the presentation order, so
-    # nonwords are not clustered at the end and bands are not in obvious order.
+    # A second, seed-derived stream shuffles the presentation order, so the
+    # bands are not in ascending order on screen.
     random.Random(seed * 7_919 + 13).shuffle(items)
     return items
 
@@ -335,8 +310,6 @@ def score(items: list[Item], answers: list[bool | None]) -> Profile:
         raise ValueError("items and answers must be the same length")
 
     bands: list[BandScore] = []
-    nonword_hits = 0
-    nonword_total = 0
 
     for index, (low, high) in enumerate(BANDS):
         attempted = 0
@@ -361,35 +334,20 @@ def score(items: list[Item], answers: list[bool | None]) -> Profile:
             )
         )
 
-    for item, answer in zip(items, answers):
-        if item.is_nonword:
-            nonword_total += 1
-            nonword_hits += 1 if answer else 0
-
     known_bands = sum(1 for band in bands if band.known_band)
-    overclaims = nonword_hits >= OVERCLAIM_HITS
     thin_sample = any(not band.enough_data for band in bands)
 
     center = KNOWN_BANDS_TO_LEVEL[known_bands]
-    level_low, level_high = _widen(center) if (overclaims or thin_sample) else (center, center)
-
-    flags: list[str] = []
-    if overclaims:
-        flags.append("overclaims")
-    if thin_sample:
-        flags.append("thin_sample")
+    level_low, level_high = _widen(center) if thin_sample else (center, center)
 
     return Profile(
         bands=bands,
-        nonword_hits=nonword_hits,
-        nonword_total=nonword_total,
         known_bands=known_bands,
         level_low=level_low,
         level_high=level_high,
         label=_render_label(level_low, level_high),
-        overclaims=overclaims,
         thin_sample=thin_sample,
-        flags=flags,
+        flags=["thin_sample"] if thin_sample else [],
     )
 
 
@@ -416,9 +374,11 @@ def save_run(session: Session, *, seed: int, items: list[Item], answers: list[bo
         level_low=profile.level_low,
         level_high=profile.level_high,
         known_bands=profile.known_bands,
-        nonword_hits=profile.nonword_hits,
-        nonword_total=profile.nonword_total,
-        overclaims=profile.overclaims,
+        # Retired by the 2026-10-29 decision to drop invented words. Written as
+        # zero so the existing columns (and old databases) stay valid.
+        nonword_hits=0,
+        nonword_total=0,
+        overclaims=False,
         thin_sample=profile.thin_sample,
     )
     session.add(run)
@@ -431,7 +391,7 @@ def save_run(session: Session, *, seed: int, items: list[Item], answers: list[bo
                 position=position,
                 word=item.word,
                 band_index=item.band_index,
-                is_nonword=item.is_nonword,
+                is_nonword=False,
                 claimed_known=answer,
             )
         )

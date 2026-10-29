@@ -129,7 +129,9 @@ Two steps are deliberately separated:
   last_seen_at, context_sentence, first_seen_text_id)` — one row per lemma
 - `placement_runs(id, created_at, seed, label, level_low, level_high,
   known_bands, nonword_hits, nonword_total, overclaims, thin_sample)` — one row
-  per completed check
+  per completed check. The `nonword_*` and `overclaims` columns are retired
+  (written as zero) since invented words were dropped on 2026-10-29; they stay
+  so existing databases need no migration.
 - `placement_responses(id, run_id, position, word, band_index, is_nonword,
   claimed_known)` — one row per word shown; `NULL` means unanswered
 - `placement_items(word, band_index, rank)` — the curated pool the placement
@@ -185,13 +187,13 @@ Open `/placement` from the home page or the navigation. You get 40 words, one
 question each — *do you know this word?* — and an estimate of your reading level
 at the end. It takes about two minutes and works offline like everything else.
 
-**What the 40 items are.** Five words from each of six frequency bands
+**What the 40 items are.** Real German words only: seven from each of the four
+commonest frequency bands and six from each of the last two
 (`1–1,000`, `1,001–3,000`, `3,001–8,000`, `8,001–15,000`, `15,001–30,000`,
-`30,001–50,000`), plus ten invented words with German-looking morphology
-(`Klimperwerk`, `Wuselheit`, `Schnupperling`, …). The nonwords are the
-calibration: nobody knows them, so claiming them is guessing. A test asserts that
-none of them appears in `dict_entries` or `word_freq` — an invented word that is
-accidentally real would break the calibration silently.
+`30,001–50,000`). No invented words: an earlier version mixed in ten nonwords to
+catch guessing, and the use-test rejected them — for a self-check, being asked
+whether you are lying is noise rather than signal. Every item therefore comes
+from `placement_items`, and a test asserts exactly that.
 
 **The pool is curated, not raw frequency.** `word_freq` comes from film
 subtitles, so it is full of names (`frodo`), interjections (`ahh`), function
@@ -214,10 +216,8 @@ words are claimed *and* at least three of its words were answered. The number of
 known bands (0–6) is looked up in a table to give a level (`A1`, `A2`, `B1`,
 `B2`). Two things widen the result instead of sharpening it:
 
-- **overclaiming** — three or more invented words claimed as known sets a flag
-  and widens the range a level in each direction;
 - **a thin sample** — any band with fewer than three answers is shown as "not
-  enough data" and widens the range the same way.
+  enough data" and widens the range a level in each direction.
 
 The label is always a range or a single level with the disclaimer attached, and
 the result page always shows the per-band table underneath it. There is no code
@@ -283,7 +283,7 @@ present. No secrets are used anywhere in M0.
 
 ## Tests
 
-`uv run pytest` — 111 tests, no network, no fixtures needed beyond the repo.
+`uv run pytest` — 105 tests, no network, no fixtures needed beyond the repo.
 
 - **Import parsers** against a tiny hand-written TEI fixture: lemmas, POS,
   multiple translations, umlauts, entries with no translation, idempotent
@@ -298,13 +298,13 @@ present. No secrets are used anywhere in M0.
   (`Kinder` → `kind` → rank), dictionary miss, manual translation, encounter
   counting, saved-word marking, delete, `/health`, `/ready`, static assets —
   all through the real HTTP stack against a temp database.
-- **Placement check**: band-count-to-label table (every possible count),
-  overclaiming (three invented words widen the range and set the flag), thin
-  bands (fewer than three answers → "not enough data" + widened range),
-  unanswered items not counted as "no", seeded item selection reproducing the
-  same set, real items drawn from their own band, nonwords absent from both
-  data tables, and a guard that `user_words`/`texts`/`tokens` counts are
-  identical before and after a run.
+- **Placement check**: band-count-to-label table (every possible count), the
+  60% band rule at its boundary, thin bands (fewer than three answers →
+  "not enough data" + widened range), unanswered items not counted as "no",
+  seeded item selection reproducing the same set, every item drawn from the
+  curated pool and from its own band, the dictionary-first word-class rule,
+  the seed-normalisation regression, and a guard that
+  `user_words`/`texts`/`tokens` counts are identical before and after a run.
 
 ---
 
@@ -331,8 +331,9 @@ Documented rather than fixed, per the milestone plan:
 - **Rare words have no frequency rank** (`Geiß`): the frequency list is
   subtitle-derived, so a fairytale word may simply not be in the top 50k.
 - **The placement check is a coarse self-report.** Forty yes/no items over six
-  bands give a wide estimate, not a CEFR measurement; the nonword calibration
-  catches guessing, not overconfidence about real words. See the section above.
+  bands give a wide estimate, not a CEFR measurement. It cannot detect
+  overconfidence, because there is nothing in it that the learner cannot
+  legitimately know.
 
 ---
 
