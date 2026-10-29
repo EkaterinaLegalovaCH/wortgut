@@ -4,6 +4,7 @@ The scoring tests use fabricated profiles (no database) because the mapping is a
 pure function; the selection and page tests use the seeded sample data.
 """
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -15,14 +16,18 @@ from sqlalchemy.orm import Session
 from app.config import PROJECT_ROOT
 from app.db import get_engine
 from app.models import DictEntry, PlacementResponse, PlacementRun, TextRecord, Token, UserWord, WordFreq
+from app.models import PlacementItem
 from app.placement import (
     BANDS,
+    dict_lookup_params,
     BAND_KNOWN_RATIO,
     DISCLAIMER,
     ITEMS_PER_BAND,
     KNOWN_BANDS_TO_LEVEL,
     NONWORDS,
     Item,
+    choose_word_class,
+    is_pool_candidate,
     select_items,
     score,
 )
@@ -270,10 +275,11 @@ def test_nonwords_are_absent_from_the_real_data():
 def test_form_renders_every_item_with_two_answers(client_with_dict: TestClient):
     page = client_with_dict.get("/placement?seed=123")
 
+    item_count = len(select_items(Session(get_engine()), 123))
     assert page.status_code == 200
     assert "not a certified CEFR test" in page.text
     assert 'name="seed" value="123"' in page.text
-    for index in range(3 + len(NONWORDS)):  # sample frequency list has 3 words
+    for index in range(item_count):
         assert f'name="item{index}" value="yes"' in page.text
         assert f'name="item{index}" value="no"' in page.text
 
@@ -299,11 +305,13 @@ def test_submit_stores_a_run_and_redirects_to_the_result(client_with_dict: TestC
         run = session.scalar(select(PlacementRun))
         assert run is not None
         assert run.seed == seed
-        # Bands 1-5 have no words in the sample list, so the run is thin and the
-        # label is widened from A1 to A1-A2: honest behaviour, asserted as such.
-        assert run.label == "A1–A2"
-        assert run.thin_sample is True
-        assert run.level_low == 0 and run.level_high == 1
+        # Every item answered "no": no band is known, so the centre is A1. The
+        # stored label must equal what the pure scoring function says for the
+        # same answers — no separate code path can drift.
+        expected = score(items, [False] * len(items))
+        assert run.label == expected.label
+        assert run.known_bands == 0
+        assert run.nonword_hits == 0
         assert run.nonword_hits == 0
         assert run.nonword_total == len(NONWORDS)
         stored = session.scalars(select(PlacementResponse)).all()
@@ -321,10 +329,17 @@ def test_result_page_matches_the_persisted_summary(client_with_dict: TestClient)
     response = client_with_dict.post("/placement", data=data, follow_redirects=False)
     page = client_with_dict.get(response.headers["location"]).text
 
+    expected = score(items, [item.is_nonword is False for item in items])
+
     with Session(get_engine()) as session:
         run = session.scalar(select(PlacementRun))
         assert run is not None
-        assert run.known_bands == 1  # only band 0 has words in the sample list
+        # The sample pool has only one word in five of the six bands, so those
+        # bands are thin and cannot count as known: the stored summary must say
+        # exactly what the pure scoring function says.
+        assert run.known_bands == expected.known_bands
+        assert run.thin_sample is expected.thin_sample
+        assert run.label == expected.label
         assert run.label in page
         assert f"run #{run.id}" in page
 
@@ -371,6 +386,149 @@ def test_placement_is_read_only_for_user_data(client_with_dict: TestClient):
 
 def test_missing_seed_is_rejected(client_with_dict: TestClient):
     assert client_with_dict.post("/placement", data={"item0": "yes"}).status_code == 422
+
+
+# ---------------------------------------------------------------- curated pool
+
+@pytest.mark.parametrize(
+    ("word", "pos", "expected"),
+    [
+        ("maus", "NOUN", True),
+        ("laufen", "VERB", True),
+        ("müde", "ADJ", True),
+        ("ahh", "INTJ", False),          # interjection
+        ("der", "DET", False),           # function word
+        ("muss", "AUX", False),          # function word
+        ("chffffff", "X", False),        # stray token
+        ("dyke", "NOUN", False),         # editorially excluded
+    ],
+)
+def test_pool_filter_keeps_only_real_vocabulary(word: str, pos: str, expected: bool):
+    assert is_pool_candidate(word=word, pos=pos, has_translation=True) is expected
+
+
+def test_pool_filter_requires_a_dictionary_entry():
+    assert is_pool_candidate(word="maus", pos="NOUN", has_translation=False) is False
+
+
+def test_pool_filter_rejects_short_words():
+    assert is_pool_candidate(word="oh", pos="INTJ", has_translation=True) is False
+    assert is_pool_candidate(word="abc", pos="NOUN", has_translation=True) is True
+
+
+@pytest.mark.parametrize(
+    ("dict_positions", "spacy_pos", "word", "expected"),
+    [
+        # the dictionary decides the class
+        ({"n"}, "NOUN", "Maske", "noun"),
+        ({"v"}, "VERB", "gehen", "verb"),
+        ({"adj"}, "ADJ", "gleich", "adj"),
+        ({"adj", "adv"}, "ADV", "gleich", "adj"),
+        # any function-word tag vetoes the word, even alongside a noun tag
+        ({"art", "n"}, "NOUN", "ein", None),
+        ({"pron", "adj"}, "ADJ", "dein", None),
+        ({"int"}, "INTJ", "nein", None),
+        ({"conj"}, "CCONJ", "aber", None),
+        # no dictionary tag means no ticket into the pool
+        (set(), "NOUN", "irgendwas", None),
+        # adverb-only entries are not vocabulary either
+        ({"adv"}, "ADV", "noch", None),
+        # verbs must be in citation form
+        ({"v"}, "VERB", "abgestempelt", None),
+        ({"v"}, "VERB", "laufen", "verb"),
+        # a spaCy proper-noun tag is a veto, never a ticket
+        ({"n"}, "PROPN", "Chevy", None),
+    ],
+)
+def test_word_class_comes_from_the_dictionary_first(
+    dict_positions: set[str], spacy_pos: str, word: str, expected: str | None
+):
+    assert choose_word_class(dict_positions=dict_positions, spacy_pos=spacy_pos, word=word) == expected
+
+
+@pytest.mark.skipif(not REAL_DB.exists(), reason="real dictionary database not imported on this machine")
+def test_real_tags_and_dictionary_reject_the_reported_words():
+    """The words flagged in the use-test must be rejected by the rule itself.
+
+    Note which half of the rule does the work: spaCy tags a bare "frodo" as a
+    noun (there is no sentence context), so the *dictionary* check is what
+    excludes names. The test therefore runs the real dictionary lookup instead
+    of asserting a POS tag the model does not produce.
+    """
+    import spacy
+
+    connection = sqlite3.connect(f"file:{REAL_DB}?mode=ro", uri=True)
+    nlp = spacy.load("de_core_news_sm")
+    try:
+        for word, should_keep in [
+            ("frodo", False),
+            ("ahh", False),
+            ("der", False),
+            ("maus", True),
+            ("laufen", True),
+        ]:
+            pos = nlp(word)[0].pos_
+            attested = (
+                connection.execute(
+                    "select 1 from dict_entries where lemma = ? or lemma = ? limit 1",
+                    dict_lookup_params(word),
+                ).fetchone()
+                is not None
+            )
+            kept = is_pool_candidate(word=word, pos=pos, has_translation=attested)
+            assert kept is should_keep, (word, pos, attested)
+    finally:
+        connection.close()
+
+
+def test_selection_only_uses_curated_pool_words(seeded: None, session: Session):
+    pool = {word for (word,) in session.execute(select(PlacementItem.word)).all()}
+    items = select_items(session, 2026)
+
+    real_items = [item for item in items if not item.is_nonword]
+    assert real_items, "the sample pool should produce real items"
+    assert all(item.word in pool for item in real_items)
+    assert all(item.word in NONWORDS for item in items if item.is_nonword)
+
+
+def test_selection_reports_a_missing_pool(client: TestClient):
+    """No pool built -> 503 that tells you the command, never a silent fallback."""
+    response = client.get("/placement?seed=1")
+
+    assert response.status_code == 503
+    assert "build_placement_pool.py" in response.json()["detail"]
+
+
+def test_nonwords_look_like_modern_derivations():
+    """Guard against a return to fairy-tale-looking invented words."""
+    archaic = {"Geißlein", "Morgentucht", "Wandelmut", "Silberkranz", "Brelmicht"}
+    assert not (set(NONWORDS) & archaic)
+    # each one is a plausible German stem plus a productive suffix
+    suffixes = ("werk", "feld", "heft", "erei", "heit", "ling", "sel")
+    assert all(word.lower().endswith(suffixes) for word in NONWORDS)
+
+
+def test_seed_over_the_limit_is_normalised_the_same_way_in_form_and_submit(client_with_dict: TestClient):
+    """Regression: the form wrapped the seed modulo 1,000,000, the POST did not.
+
+    A large ?seed= then produced one item set on screen and a different one in
+    the scored run, so answers landed on the wrong words.
+    """
+    page = client_with_dict.get("/placement?seed=20261029").text
+    shown_seed = int(re.search(r'name="seed" value="(\d+)"', page).group(1))
+    assert shown_seed == 20261029 % 1_000_000
+
+    items = select_items(Session(get_engine()), shown_seed)
+    data = {"seed": str(20261029), **{f"item{index}": "no" for index in range(len(items))}}
+    response = client_with_dict.post("/placement", data=data, follow_redirects=False)
+    assert response.status_code == 303
+
+    with Session(get_engine()) as session:
+        run = session.scalar(select(PlacementRun))
+        assert run is not None
+        assert run.seed == shown_seed, "the stored run must use the seed the form showed"
+        stored = session.scalars(select(PlacementResponse).order_by(PlacementResponse.position)).all()
+        assert [row.word for row in stored] == [item.word for item in items]
 
 
 def test_no_network_capable_imports_in_app_or_scripts():

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import create_schema, get_session, make_engine, reset_engine
 from app.main import app
-from app.models import DictEntry, WordFreq
+from app.models import DictEntry, PlacementItem, WordFreq
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -33,6 +33,12 @@ SAMPLE_FREQ = [
     {"word": "haus", "rank": 120, "count": 420000},
     {"word": "wolf", "rank": 900, "count": 51000},
     {"word": "laufen", "rank": 700, "count": 88000},
+    # One word per remaining band, so the placement pool spans all six bands.
+    {"word": "brunnen", "rank": 2600, "count": 9000},
+    {"word": "mühle", "rank": 4200, "count": 5000},
+    {"word": "geist", "rank": 12000, "count": 1200},
+    {"word": "schmiede", "rank": 22000, "count": 600},
+    {"word": "krug", "rank": 41000, "count": 240},
 ]
 
 
@@ -57,10 +63,29 @@ def session(engine) -> Iterator[Session]:
 
 @pytest.fixture
 def seeded(engine) -> None:
-    """Seed the sample dictionary and frequency rows."""
+    """Seed the sample dictionary, frequency rows, and the curated pool.
+
+    The pool is normally built by scripts/build_placement_pool.py; here it is
+    seeded directly so the placement tests do not depend on spaCy tagging.
+    """
+    from app.placement import BANDS
+
+    def band_for(rank: int) -> int:
+        for index, (low, high) in enumerate(BANDS):
+            if low <= rank <= high:
+                return index
+        raise ValueError(rank)
+
     with Session(engine) as session:
         session.execute(insert(DictEntry), SAMPLE_DICT)
         session.execute(insert(WordFreq), SAMPLE_FREQ)
+        session.execute(
+            insert(PlacementItem),
+            [
+                {"word": row["word"], "band_index": band_for(row["rank"]), "rank": row["rank"]}
+                for row in SAMPLE_FREQ
+            ],
+        )
         session.commit()
 
 

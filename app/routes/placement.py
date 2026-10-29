@@ -19,6 +19,7 @@ from ..models import PlacementResponse, PlacementRun
 from ..placement import (
     DISCLAIMER,
     Item,
+    PoolNotBuilt,
     latest_run,
     responses_for,
     save_run,
@@ -35,27 +36,32 @@ def _templates(request: Request):
     return request.app.state.templates
 
 
+def normalize_seed(value: int) -> int:
+    """Fold any integer into the seed range.
+
+    Both the form and the submit must agree on this: the hidden field carries
+    the normalised value, and the POST stores it. Wrapping one side only was a
+    real bug — the form showed one item set and the run was scored against
+    another.
+    """
+    return value % DEFAULT_SEED_LIMIT
+
+
 def _seed_from(request: Request) -> int:
     """Use ?seed= when given (reproducible runs), else a fresh random seed."""
     raw = request.query_params.get("seed")
-    if raw and raw.isdigit():
-        return int(raw) % DEFAULT_SEED_LIMIT
+    if raw and raw.lstrip("-").isdigit():
+        return normalize_seed(int(raw))
     return random.randint(1, DEFAULT_SEED_LIMIT)
 
 
 @router.get("/placement")
 def placement_form(request: Request, session: Session = Depends(get_session)):
     seed = _seed_from(request)
-    items = select_items(session, seed)
-
-    if not any(not item.is_nonword for item in items):
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "The frequency list is empty, so there are no words to check. "
-                "Run: uv run python scripts/import_freq.py"
-            ),
-        )
+    try:
+        items = select_items(session, seed)
+    except PoolNotBuilt as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     band_count = len({item.band_index for item in items if item.band_index is not None})
     return _templates(request).TemplateResponse(
@@ -78,13 +84,14 @@ async def placement_submit(request: Request, session: Session = Depends(get_sess
     raw_seed = form.get("seed")
     if not isinstance(raw_seed, str) or not raw_seed.isdigit():
         raise HTTPException(status_code=422, detail="Missing or invalid seed.")
-    seed = int(raw_seed)
+    seed = normalize_seed(int(raw_seed))
 
     # Rebuild the exact item set from the seed rather than trusting the client
     # to send the words back: the answers then line up with the stored items.
-    items = select_items(session, seed)
-    if not any(not item.is_nonword for item in items):
-        raise HTTPException(status_code=503, detail="The frequency list is empty.")
+    try:
+        items = select_items(session, seed)
+    except PoolNotBuilt as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     answers: list[bool | None] = []
     for index in range(len(items)):

@@ -91,6 +91,23 @@ class UserWord(Base):
     first_seen_text_id: Mapped[Optional[int]] = mapped_column(ForeignKey("texts.id"))
 
 
+class PlacementItem(Base):
+    """Curated pool of words the placement check may show.
+
+    Derived data, rebuilt by `scripts/build_placement_pool.py` from `word_freq`
+    (rank and band), `dict_entries` (is this real vocabulary with a translation?)
+    and spaCy (is it a noun/verb/adjective rather than a name, interjection or
+    function word?). Kept as a table instead of computed per request so the
+    selection is fast and the pool can be inspected and reviewed.
+    """
+
+    __tablename__ = "placement_items"
+
+    word: Mapped[str] = mapped_column(String(200), primary_key=True)
+    band_index: Mapped[int] = mapped_column(Integer, index=True)
+    rank: Mapped[int] = mapped_column(Integer)
+
+
 class PlacementRun(Base):
     """One completed placement check: the summary W-7 will read.
 

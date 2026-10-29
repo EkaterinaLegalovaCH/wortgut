@@ -57,6 +57,9 @@ uv sync
 uv run python scripts/import_freq.py     # ~0.5 s  → 50,000 words
 uv run python scripts/import_dict.py     # ~26 s   → 517,000 dictionary entries
 
+# 3b. Curate the placement-check word pool (~1 min, re-runnable)
+uv run python scripts/build_placement_pool.py
+
 # 4. Run it
 ./run.sh                                 # http://127.0.0.1:8000
 ```
@@ -113,6 +116,7 @@ Two steps are deliberately separated:
 | `app/routes/placement.py` | Placement pages: form, submit, result |
 | `scripts/import_dict.py` | Streams the 450 MB TEI dictionary into `dict_entries` |
 | `scripts/import_freq.py` | Frequency list into `word_freq` |
+| `scripts/build_placement_pool.py` | Curates `placement_items`: real vocabulary only |
 
 ### Data model
 
@@ -128,6 +132,9 @@ Two steps are deliberately separated:
   per completed check
 - `placement_responses(id, run_id, position, word, band_index, is_nonword,
   claimed_known)` — one row per word shown; `NULL` means unanswered
+- `placement_items(word, band_index, rank)` — the curated pool the placement
+  check samples from; derived data, rebuilt by
+  `scripts/build_placement_pool.py`
 
 ---
 
@@ -178,13 +185,29 @@ Open `/placement` from the home page or the navigation. You get 40 words, one
 question each — *do you know this word?* — and an estimate of your reading level
 at the end. It takes about two minutes and works offline like everything else.
 
-**What the 40 items are.** Five words from each of six frequency bands over
-`word_freq` (`1–1,000`, `1,001–3,000`, `3,001–8,000`, `8,001–15,000`,
-`15,001–30,000`, `30,001–50,000`), plus ten invented words with German-looking
-morphology (`Brelmicht`, `Grumseln`, …). The nonwords are the calibration: nobody
-knows them, so claiming them is guessing. A test asserts that none of them
-appears in `dict_entries` or `word_freq` — an invented word that is accidentally
-real would break the calibration silently.
+**What the 40 items are.** Five words from each of six frequency bands
+(`1–1,000`, `1,001–3,000`, `3,001–8,000`, `8,001–15,000`, `15,001–30,000`,
+`30,001–50,000`), plus ten invented words with German-looking morphology
+(`Klimperwerk`, `Wuselheit`, `Schnupperling`, …). The nonwords are the
+calibration: nobody knows them, so claiming them is guessing. A test asserts that
+none of them appears in `dict_entries` or `word_freq` — an invented word that is
+accidentally real would break the calibration silently.
+
+**The pool is curated, not raw frequency.** `word_freq` comes from film
+subtitles, so it is full of names (`frodo`), interjections (`ahh`), function
+words (`der`, `ein`) and stray tokens. `scripts/build_placement_pool.py` keeps a
+word only when it is alphabetic and 3+ letters, attested in the dictionary as
+real vocabulary, and *not* tagged by the dictionary as a function word — a word
+that carries any `art`/`pron`/`prep`/`conj`/`int`/`ptcl`/`num` tag is rejected
+even when it also has a noun tag (`ein` is both). Verbs must be in citation form
+(`laufen`, not `abgestempelt`); nouns are shown capitalised. A short editorial
+list (`POOL_BLOCKLIST`) removes slurs, loaded political vocabulary and English
+borrowings that subtitle corpora mix in. The result is ~14,400 words across the
+six bands, stored in `placement_items` so it can be inspected:
+
+```bash
+sqlite3 data/wortgut.sqlite3 "select band_index, count(*) from placement_items group by 1"
+```
 
 **How a run is scored.** A band counts as known when at least 60% of its answered
 words are claimed *and* at least three of its words were answered. The number of
@@ -260,7 +283,7 @@ present. No secrets are used anywhere in M0.
 
 ## Tests
 
-`uv run pytest` — 83 tests, no network, no fixtures needed beyond the repo.
+`uv run pytest` — 111 tests, no network, no fixtures needed beyond the repo.
 
 - **Import parsers** against a tiny hand-written TEI fixture: lemmas, POS,
   multiple translations, umlauts, entries with no translation, idempotent

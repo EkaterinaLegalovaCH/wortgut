@@ -4,6 +4,14 @@ What it does: shows 40 words, 5 from each of six frequency bands plus 10
 nonwords, asks "do you know this?" for each, and turns the answers into a
 per-band profile plus a *reading-level estimate*.
 
+Where the words come from: not `word_freq` directly. Subtitle-derived frequency
+lists are full of names (`frodo`), interjections (`ahh`) and function words
+(`der`, `muss`), none of which say anything about vocabulary. `scripts/
+build_placement_pool.py` curates the pool once into `placement_items`: the word
+must be attested in the dictionary (so it is real vocabulary with a translation)
+and spaCy must call it a noun, verb or adjective. This module only samples the
+curated table.
+
 Design notes:
 - The stored artifact is the profile (attempted / known per band, nonword
   hits, seed, date). The level label is a deterministic table lookup over that
@@ -26,7 +34,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import PlacementResponse, PlacementRun, WordFreq
+from .models import PlacementItem, PlacementResponse, PlacementRun
 
 # Six frequency bands over word_freq ranks. Five items from each.
 BANDS: tuple[tuple[int, int], ...] = (
@@ -70,18 +78,62 @@ DISCLAIMER = (
 )
 
 # Fixed, checked against both data tables by tests/test_placement.py.
+# Chosen to look like ordinary modern German derivation (Klimper+werk,
+# Wusel+heit, Schnupper+ling) rather than fairy-tale words: a nonword that is
+# obviously fake is not a useful calibration item, because it is trivially
+# recognisable as a trick.
 NONWORDS: tuple[str, ...] = (
-    "Brelmicht",
-    "Grumseln",
-    "Taldrisch",
-    "Hornkessel",
-    "Wandelmut",
-    "Zerplisch",
-    "Morgentucht",
-    "Silberkranz",
-    "Klinkerhaft",
-    "Bimslicht",
+    "Klimperwerk",
+    "Wischfeld",
+    "Schnellheft",
+    "Schlauferei",
+    "Wuselheit",
+    "Klickwerk",
+    "Schnupperling",
+    "Tippsel",
+    "Zupferei",
+    "Wackelheit",
 )
+
+# Part-of-speech tags that count as real vocabulary for this purpose. Names,
+# interjections ("ahh", "hmm"), numbers and function words are excluded: they
+# are not learnable vocabulary and a learner answers them without thinking.
+ALLOWED_POS: frozenset[str] = frozenset({"NOUN", "VERB", "ADJ"})
+
+
+# Editorial exclusions. Frequency lists built from subtitles carry English
+# borrowings, slurs and loaded political vocabulary; a language-learning check
+# is not the place for them. Deliberately a short, readable list rather than a
+# hidden heuristic — extend it when a use-test turns up something similar.
+POOL_BLOCKLIST: frozenset[str] = frozenset(
+    {
+        "talk",
+        "dyke",
+        "monsieur",
+        "chevy",
+        "ecstasy",
+        "ciao",
+        "pussy",
+        "pimmel",
+        "führer",
+        "nazi",
+        "hitler",
+        "jude",
+        "russen",
+        "schwuchtel",
+        "hurensohn",
+        "scheiße",
+    }
+)
+
+
+def is_blocked(word: str) -> bool:
+    """Editorially excluded from the pool (see POOL_BLOCKLIST)."""
+    return word.lower() in POOL_BLOCKLIST
+
+
+class PoolNotBuilt(RuntimeError):
+    """The curated item pool is missing or empty — the build script has not run."""
 
 
 @dataclass(frozen=True)
@@ -157,14 +209,24 @@ class Profile:
 def select_items(session: Session, seed: int) -> list[Item]:
     """The 40 items for one run: 5 real words per band plus every nonword.
 
-    Deterministic for a given seed and database content: candidates are sorted
+    Deterministic for a given seed and pool: candidates are sorted by rank
     before sampling, so the same seed produces the same set on the same data.
+
+    Raises PoolNotBuilt when the curated pool is empty, instead of silently
+    falling back to the raw frequency list — the noise there is the whole
+    reason the pool exists.
     """
+    pool = _pool_by_band(session)
+    if not any(pool.values()):
+        raise PoolNotBuilt(
+            "The placement item pool is empty. Run: uv run python scripts/build_placement_pool.py"
+        )
+
     rng = random.Random(seed)
     items: list[Item] = []
 
-    for index, (low, high) in enumerate(BANDS):
-        candidates = _band_candidates(session, low, high)
+    for index in range(len(BANDS)):
+        candidates = pool.get(index, [])
         take = min(ITEMS_PER_BAND, len(candidates))
         for word in rng.sample(candidates, take):
             items.append(Item(word=word, band_index=index, is_nonword=False))
@@ -177,24 +239,90 @@ def select_items(session: Session, seed: int) -> list[Item]:
     return items
 
 
-def _band_candidates(session: Session, low: int, high: int) -> list[str]:
-    """Real words whose frequency rank falls in the band, in rank order."""
+def _pool_by_band(session: Session) -> dict[int, list[str]]:
+    """Curated words per band, sorted by frequency rank (1 = most frequent)."""
     rows = session.execute(
-        select(WordFreq.word)
-        .where(WordFreq.rank >= low, WordFreq.rank <= high)
-        .order_by(WordFreq.rank, WordFreq.word)
+        select(PlacementItem.band_index, PlacementItem.word).order_by(
+            PlacementItem.rank, PlacementItem.word
+        )
     ).all()
 
-    seen: set[str] = set()
-    words: list[str] = []
-    for (word,) in rows:
-        if len(word) < 3 or not word.isalpha():
-            continue
-        if word in seen:
-            continue
-        seen.add(word)
-        words.append(word)
-    return words
+    pool: dict[int, list[str]] = {}
+    for band_index, word in rows:
+        pool.setdefault(band_index, []).append(word)
+    return pool
+
+
+def dict_lookup_params(word: str) -> tuple[str, str]:
+    """The two spellings to try against `dict_entries` for a frequency-list word.
+
+    The list is lowercase and FreeDict capitalises nouns, so both spellings are
+    checked. Shared by the pool builder and its test so they cannot disagree
+    about what "attested" means.
+    """
+    return word, word[:1].upper() + word[1:]
+
+
+# FreeDict's own part-of-speech tags, mapped onto the three classes that make
+# sense as vocabulary items.
+DICT_POS_TO_CLASS: dict[str, str] = {"n": "noun", "v": "verb", "adj": "adj"}
+
+# Tags that mark a headword as grammar rather than vocabulary. A word carrying
+# any of these is excluded even when it also has a noun tag (FreeDict lists
+# "ein" as art *and* n).
+FUNCTION_POS: frozenset[str] = frozenset({"art", "pron", "prep", "conj", "int", "ptcl", "num"})
+
+
+def choose_word_class(*, dict_positions: set[str], spacy_pos: str, word: str) -> str | None:
+    """Decide what kind of word this is, or None to reject it.
+
+    The dictionary is the authority. Two rules do the work:
+
+    - a word that is *ever* tagged as a function word is rejected, even if it
+      also has a noun tag. FreeDict lists `ein` as both `art` and `n`, and a
+      bare "ein" in a vocabulary test measures nothing.
+    - a word with no noun/verb/adjective tag is rejected. Advertising adverb-only
+      entries ("noch", "mal") is the same problem one step further in.
+
+    spaCy tags a word in isolation, which is exactly where names and function
+    words slip through (`frodo` comes back as a noun), so it is used only as a
+    sanity veto below — never as a ticket into the pool.
+    """
+    if not dict_positions:
+        return None
+    if dict_positions & FUNCTION_POS:
+        return None
+    if spacy_pos in {"PROPN", "INTJ", "NUM", "X", "SYM", "PUNCT", "SPACE"}:
+        return None
+
+    classes = {DICT_POS_TO_CLASS[pos] for pos in dict_positions if pos in DICT_POS_TO_CLASS}
+    if not classes:
+        return None
+
+    # Verbs must be in citation form: asking whether a learner knows
+    # "vorbeigekommen" measures parsing, not vocabulary.
+    if classes == {"verb"} and not word.endswith(("en", "ern", "eln")):
+        return None
+
+    for preferred in ("noun", "verb", "adj"):
+        if preferred in classes:
+            return preferred
+    return None
+
+
+def is_pool_candidate(*, word: str, pos: str, has_translation: bool, min_length: int = 3) -> bool:
+    """Should this frequency-list word be allowed into the placement pool?
+
+    Pure on purpose: the build script and the tests agree on one definition of
+    "real vocabulary worth showing a learner".
+    """
+    if len(word) < min_length or not word.isalpha():
+        return False
+    if is_blocked(word):
+        return False
+    if not has_translation:
+        return False
+    return pos in ALLOWED_POS
 
 
 def score(items: list[Item], answers: list[bool | None]) -> Profile:
