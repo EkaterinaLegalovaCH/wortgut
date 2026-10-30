@@ -56,7 +56,9 @@ def make_run(session: Session, *, bands_known: int, seed: int = 1) -> PlacementR
                 PlacementResponse(
                     run_id=run.id,
                     position=position,
-                    word=f"w{band_index}x{offset}",
+                    # same names the pool/frequency fixtures use, so a claim can
+                    # refer to a word that actually gets seeded
+                    word=f"pool{band_index}x{offset}",
                     band_index=band_index,
                     is_nonword=False,
                     claimed_known=band_index < bands_known,
@@ -139,6 +141,26 @@ def test_seed_policy_decides_what_a_passed_band_means(
     assert counts[expected_passed] == 4
     assert counts[expected_rest] == 8
     assert all(row_source == "placement" for (row_source,) in session.execute(select(WordStatus.source)))
+
+
+def test_a_word_claimed_in_a_failed_band_is_still_familiar(session: Session):
+    """Individual answers beat the band they came from.
+
+    She claimed 3 of 7 words in band 1; the band failed the 60% rule, but those
+    three words are direct evidence and must not be seeded as new.
+    """
+    seed_pool(session)
+    run = make_run(session, bands_known=1)
+    # claim one specific word in band 2, which the run did not pass
+    claimed_word = "pool2x0"
+    row = session.scalar(select(PlacementResponse).where(PlacementResponse.run_id == run.id, PlacementResponse.word == claimed_word))
+    row.claimed_known = True
+    session.commit()
+
+    seed_from_placement(session, run)
+
+    assert session.get(WordStatus, claimed_word).status == "familiar"
+    assert session.get(WordStatus, "pool2x1").status == "new"
 
 
 def test_seed_policy_none_writes_nothing(session: Session):

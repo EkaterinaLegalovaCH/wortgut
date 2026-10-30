@@ -161,8 +161,9 @@ def seed_from_placement(
 ) -> dict[str, int]:
     """Seed word statuses from a placement run. Returns counts per status written.
 
-    Every word with a frequency rank is seeded (about 50k): the band decides the
-    status. Words with no rank at all get no row and stay "unrated" downstream.
+    Every word with a frequency rank is seeded (about 50k). A word she claimed in
+    the check is `familiar` whatever its band; otherwise a passed band decides.
+    Words with no rank at all get no row and stay "unrated" downstream.
 
     Real evidence outranks a questionnaire. Words the learner has looked up or
     saved keep their status — taking the check again re-calibrates the bands, it
@@ -177,6 +178,18 @@ def seed_from_placement(
 
     known = passed_bands(session, run)
     passed_status = "known" if policy == "known" else "familiar"
+
+    # Individual answers beat the band they came from: if she claimed a word in
+    # a band that did not pass, that word is still evidence she recognises it.
+    # The band rule only fills in the words the check never showed her.
+    claimed = {
+        key(row.word)
+        for row in session.scalars(
+            select(PlacementResponse).where(
+                PlacementResponse.run_id == run.id, PlacementResponse.claimed_known.is_(True)
+            )
+        ).all()
+    }
 
     evidence = set(
         session.scalars(
@@ -200,7 +213,7 @@ def seed_from_placement(
         if lemma in evidence:
             continue
         band_index = band_for_rank(rank)
-        status = passed_status if band_index in known else "new"
+        status = passed_status if (band_index in known or lemma in claimed) else "new"
         counts[status] += 1
         rows.append(
             {
