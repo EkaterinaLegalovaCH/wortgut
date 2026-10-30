@@ -20,7 +20,7 @@ from app.knowledge import (
     status_map,
     text_coverage,
 )
-from app.models import PlacementItem, PlacementResponse, PlacementRun, TextRecord, Token, UserWord, WordStatus
+from app.models import PlacementItem, PlacementResponse, PlacementRun, TextRecord, Token, UserWord, WordFreq, WordStatus
 from app.placement import Item, score
 
 SAMPLE_TEXT = [  # (lemma, surface) — "der" appears twice, in two cases
@@ -67,14 +67,25 @@ def make_run(session: Session, *, bands_known: int, seed: int = 1) -> PlacementR
     return run
 
 
+BAND_RANKS = [1, 1500, 4000, 9000, 20000, 40000]  # one representative rank per band
+
+
 def seed_pool(session: Session, words_per_band: int = 2) -> None:
-    rows = []
+    """Words that are both in the placement pool and in the frequency list.
+
+    Seeding reads `word_freq`, so a pool row alone would not be seeded; a word
+    needs a rank to belong to a band.
+    """
+    pool_rows = []
+    freq_rows = []
     for band_index in range(6):
         for offset in range(words_per_band):
-            rows.append(
-                {"word": f"pool{band_index}x{offset}", "band_index": band_index, "rank": 1000 * band_index + offset}
-            )
-    session.execute(insert(PlacementItem), rows)
+            word = f"pool{band_index}x{offset}"
+            rank = BAND_RANKS[band_index] + offset
+            pool_rows.append({"word": word, "band_index": band_index, "rank": rank})
+            freq_rows.append({"word": word, "rank": rank, "count": 1})
+    session.execute(insert(PlacementItem), pool_rows)
+    session.execute(insert(WordFreq), freq_rows)
     session.commit()
 
 
@@ -190,14 +201,14 @@ def test_saving_a_word_sets_the_same_status_in_both_tables(session: Session):
     word = save_word(session, lemma="Hund", translation="dog", context="Der Hund.", text_id=text_id)
 
     assert word.status == "learning"
-    assert session.get(WordStatus, "Hund").status == "learning"
-    assert session.get(WordStatus, "Hund").source == "save"
+    assert session.get(WordStatus, "hund").status == "learning"
+    assert session.get(WordStatus, "hund").source == "save"
 
 
 def test_promotion_needs_repeated_meetings(session: Session):
     """A word met once is still new; it has to earn each step."""
     record_lookup(session, "Zelt")            # creates learning, encounters 1
-    row = session.get(WordStatus, "Zelt")
+    row = session.get(WordStatus, "zelt")
     row.status = "new"
     row.encounters = 0
     session.commit()
@@ -213,9 +224,16 @@ def test_promotion_needs_repeated_meetings(session: Session):
     assert promote(session, "Zelt") == "familiar"
 
 
-def test_status_map_defaults_unknown_lemmas_to_new(session: Session):
+def test_status_map_defaults_unknown_lemmas_to_unrated(session: Session):
+    """"No opinion" is not "new": the two buckets must never be merged."""
     record_lookup(session, "Bekannt")
-    assert status_map(session, ["Bekannt", "NieGesehen"]) == {"Bekannt": "learning", "NieGesehen": "new"}
+    assert status_map(session, ["Bekannt", "NieGesehen"]) == {"Bekannt": "learning", "NieGesehen": "unrated"}
+
+
+def test_status_lookup_is_case_insensitive(session: Session):
+    """Text lemmas are capitalised for nouns, the frequency list is lowercase."""
+    record_lookup(session, "Hund")
+    assert status_map(session, ["Hund", "hund"]) == {"Hund": "learning", "hund": "learning"}
 
 
 def test_band_counts_always_lists_every_status(session: Session):
@@ -228,16 +246,16 @@ def test_band_counts_always_lists_every_status(session: Session):
 
 def test_coverage_counts_distinct_lemmas_not_tokens(session: Session):
     text_id = make_text(session, SAMPLE_TEXT)  # "der" appears twice, in different cases
-    for lemma in ("Hund", "laufen", "Garten", "der"):
-        row = WordStatus(lemma=lemma, status="known", source="placement", encounters=0)
-        session.add(row)
+    for lemma in ("hund", "laufen", "garten", "der"):
+        session.add(WordStatus(lemma=lemma, status="known", source="placement", encounters=0))
     session.commit()
 
     coverage = text_coverage(session, text_id)
 
     assert coverage.total_words == 5  # der/Hund/laufen/durch/Garten: "der" counted once
-    assert coverage.known_words == 4  # everything but "durch"
-    assert coverage.percent == 80
+    assert coverage.known_words == 4  # everything but "durch", which has no row
+    assert coverage.unrated_words == 1
+    assert coverage.percent == 100  # 4 of 4 rated words
 
 
 def test_coverage_after_a_fresh_install_has_no_baseline(session: Session):
@@ -252,19 +270,78 @@ def test_coverage_after_a_fresh_install_has_no_baseline(session: Session):
 
 def test_coverage_reports_percentage_and_new_words(session: Session):
     text_id = make_text(session, SAMPLE_TEXT)
-    session.add(WordStatus(lemma="Hund", status="known", source="placement", encounters=0))
+    session.add(WordStatus(lemma="hund", status="known", source="placement", encounters=0))
     session.add(WordStatus(lemma="laufen", status="familiar", source="placement", encounters=0))
+    session.add(WordStatus(lemma="garten", status="new", source="placement", encounters=0))
     session.commit()
 
     coverage = text_coverage(session, text_id)
 
     assert coverage.has_baseline is True
     assert "familiar" in COVERED_STATUSES
-    assert coverage.known_words == 2
-    assert coverage.new_words == coverage.total_words - 2
-    assert coverage.percent == round(100 * 2 / coverage.total_words)
+    assert coverage.known_words == 2          # hund + laufen
+    assert coverage.new_words == 1            # garten: ranked, band not passed
+    assert coverage.unrated_words == 2        # der, durch: no rank in this fixture
+    assert coverage.rated_words == 3
+    assert coverage.percent == round(100 * 2 / 3)
     assert f"{coverage.percent}% known" in coverage.summary
     assert f"{coverage.new_words} new words" in coverage.summary
+    assert f"{coverage.unrated_words} not rated" in coverage.summary
+
+
+def test_lemma_without_a_rank_is_unrated_not_new(session: Session):
+    """The bug: 35 of 39 "new words" in one text had no status row at all.
+
+    A word the app has no frequency rank for cannot be "not learned yet" — it is
+    simply unknown to the model, and must not depress the percentage.
+    """
+    text_id = make_text(session, [("Hund", "Hund"), ("frisst", "frisst"), ("Geißlein", "Geißlein")])
+    session.add(WordStatus(lemma="hund", status="familiar", source="placement", encounters=0))
+    session.add(WordStatus(lemma="frisst", status="new", source="placement", encounters=0))
+    session.commit()
+
+    coverage = text_coverage(session, text_id)
+
+    assert coverage.total_words == 3
+    assert coverage.known_words == 1
+    assert coverage.new_words == 1        # frisst: ranked, in a band not passed
+    assert coverage.unrated_words == 1    # Geißlein: no rank anywhere
+    assert coverage.rated_words == 2
+    assert coverage.percent == 50          # 1 of 2 rated words, not 1 of 3
+    assert "1 not rated" in coverage.summary
+
+
+def test_baseline_requires_a_seeded_run_not_a_single_lookup(session: Session):
+    """A fresh install with one lookup must still say "no level yet"."""
+    text_id = make_text(session, [("Hund", "Hund")])
+
+    record_lookup(session, "Hund")
+    coverage = text_coverage(session, text_id)
+
+    assert coverage.has_baseline is False
+    assert coverage.percent is None
+    assert "no level yet" in coverage.summary
+
+
+def test_seeding_covers_ranked_words_outside_the_placement_pool(session: Session):
+    """Seeding reads word_freq, so function words and common verbs get a status."""
+    session.execute(
+        insert(WordFreq),
+        [
+            {"word": "der", "rank": 10, "count": 1},
+            {"word": "und", "rank": 9, "count": 1},
+            {"word": "gehen", "rank": 106, "count": 1},
+            {"word": "frisst", "rank": 9000, "count": 1},
+        ],
+    )
+    session.commit()
+
+    seed_from_placement(session, make_run(session, bands_known=1))
+
+    statuses = dict(session.execute(select(WordStatus.lemma, WordStatus.status)).all())
+    assert statuses["der"] == "familiar"     # band 0 passed
+    assert statuses["gehen"] == "familiar"
+    assert statuses["frisst"] == "new"       # band 2 not passed
 
 
 # ---------------------------------------------------------------- pages

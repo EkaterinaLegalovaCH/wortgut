@@ -201,6 +201,14 @@ class Profile:
         }
 
 
+def band_for_rank(rank: int) -> int | None:
+    """Which frequency band a rank falls into, or None when it is out of range."""
+    for index, (low, high) in enumerate(BANDS):
+        if low <= rank <= high:
+            return index
+    return None
+
+
 def select_items(session: Session, seed: int) -> list[Item]:
     """The 40 items for one run: 7/7/7/7/6/6 real words across the six bands.
 

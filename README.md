@@ -261,9 +261,12 @@ Every lemma the app has an opinion about gets a status:
 | `known` | seedable by policy; otherwise reached by repeated meetings |
 
 **Where the first values come from.** Submitting a placement check seeds
-`word_status` for the curated pool: words in bands the run passed become
-`familiar` (the default policy) and everything else stays `new`. Two deliberate
-choices sit behind that:
+`word_status` from the **frequency list** (about 50,000 ranked words), not from
+the placement pool: words in bands the run passed become `familiar` (the default
+policy) and everything else stays `new`. Seeding from the pool would have been
+wrong — the pool deliberately excludes function words, so `der`, `und`, `ich`
+would have had no status and been counted as "new". Two deliberate choices sit
+behind the rest:
 
 - **The bands, not the label.** Seeding reads `placement_responses` and
   recomputes the per-band profile. A single derived label like "A1" must never
@@ -282,9 +285,25 @@ status when the check is taken again, so re-calibrating the band estimate never
 erases what reading taught the model.
 
 **Coverage** is per text and per **distinct lemma**, not per token: `der`
-appearing nine times is one word to know. The reader and the text list both show
-`"% known · N new words"`. With no placement run and no saved or looked-up word,
-coverage reports *"no level yet"* instead of a 0% that would look like data.
+appearing nine times is one word to know. Four buckets, because three of them
+mean different things:
+
+| Bucket | Meaning | In the percentage? |
+|---|---|---|
+| known / familiar | counted as understood | yes, as known |
+| learning | looked up or saved, being worked on | yes, as not known |
+| new | ranked, but in a band you have not shown you know | yes, as not known |
+| not rated | the app has no frequency rank for it at all | **no** |
+
+A word with no rank is *not rated*, never "new": "not learned yet" and "no
+opinion" are different claims, and folding the second into the first is what
+made the first percentage lie. The reader and the text list both show
+`"% known · N new words"` (plus `· N not rated` when there are any), and the
+percentage is computed over rated words only.
+
+With no placement run seeded, coverage reports *"no level yet"* instead of a 0%
+that would look like data — one lookup on a fresh install does not count as a
+baseline.
 
 Note on tables: `user_words` is the learner's own list (saved words, with a
 status for display), `word_status` is the model behind coverage. Saving writes
@@ -333,7 +352,7 @@ present. No secrets are used anywhere in M0.
 
 ## Tests
 
-`uv run pytest` — 123 tests, no network, no fixtures needed beyond the repo.
+`uv run pytest` — 127 tests, no network, no fixtures needed beyond the repo.
 
 - **Import parsers** against a tiny hand-written TEI fixture: lemmas, POS,
   multiple translations, umlauts, entries with no translation, idempotent
@@ -355,6 +374,12 @@ present. No secrets are used anywhere in M0.
   curated pool and from its own band, the dictionary-first word-class rule,
   the seed-normalisation regression, and a guard that
   `user_words`/`texts`/`tokens` counts are identical before and after a run.
+- **Known-word model**: seeding policies (`familiar`/`known`/`none`), seeding
+  from ranks so function words get a status, lookup/save evidence surviving a
+  re-seed, promotion only after repeated meetings, case-insensitive lemma keys,
+  coverage counting distinct lemmas, a rank-less lemma reporting as "not rated"
+  rather than "new", the rated-words denominator, and a baseline that requires a
+  seeded run rather than any row.
 
 ---
 

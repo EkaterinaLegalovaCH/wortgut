@@ -14,7 +14,8 @@
     <strong>{{ coverage.summary }}</strong>
     {% if coverage.has_baseline %}
       <span class="hint">— counted per distinct word; {{ coverage.known_words }} of
-      {{ coverage.total_words }} are already familiar or known</span>
+      {{ coverage.rated_words }} rated words are familiar or known{% if coverage.unrated_words %};
+      {{ coverage.unrated_words }} have no frequency rank and are left out{% endif %}</span>
     {% else %}
       <span class="hint">— <a href="/placement">take the placement check</a> and this
       becomes a real percentage instead of a guess</span>
