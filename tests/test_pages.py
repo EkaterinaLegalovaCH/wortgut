@@ -1,8 +1,17 @@
 """Smoke tests for every page — these catch template and wiring breakage fast."""
 
+import re
+
 from fastapi.testclient import TestClient
 
+from app.routes.pages import TOKENS_PER_PAGE
+
+_PAGE_COUNTER = re.compile(r"Page \d+ of (\d+)")
+
 SAMPLE_TEXT = "Der Wolf lief durch Häuser und Mädchen."
+
+# Long enough to need several reader pages, short enough to tokenize quickly.
+LONG_TEXT = "Der Wolf lief durch den dunklen Wald und suchte nach Beute. " * 600
 
 
 def test_home_page_loads(client: TestClient):
@@ -132,3 +141,83 @@ def test_library_explains_what_new_means(client: TestClient):
     page = client.get("/").text
 
     assert HINT in page
+
+
+def _create_long_text(client: TestClient) -> str:
+    """Create a text long enough for several pages and return its reader URL."""
+    response = client.post(
+        "/texts", data={"title": "Langer Text", "text": LONG_TEXT}, follow_redirects=False
+    )
+    return response.headers["location"]
+
+
+def _total_pages(html: str) -> int:
+    """Read the page count from the pager, failing loudly when it is absent."""
+    match = _PAGE_COUNTER.search(html)
+    assert match is not None, "the pager is missing from the page"
+    return int(match.group(1))
+
+
+def test_short_text_has_no_pager(client: TestClient):
+    """A text that fits on one page needs no navigation."""
+    client.post("/texts", data={"title": "Testtext", "text": SAMPLE_TEXT}, follow_redirects=False)
+    page = client.get("/texts/1").text
+
+    assert "reader-pager" not in page
+
+
+def test_long_text_is_split_into_pages(client: TestClient):
+    """W-21: a long text renders one page at a time, with a way forward."""
+    url = _create_long_text(client)
+    page = client.get(url).text
+
+    assert "reader-pager" in page
+    assert "Page 1 of" in page
+    assert 'href="/texts/1?page=2"' in page
+    assert "pager-link disabled" in page  # no Previous on the first page
+
+
+def test_second_page_links_both_ways(client: TestClient):
+    url = _create_long_text(client)
+    page = client.get(f"{url}?page=2").text
+
+    assert "Page 2 of" in page
+    assert 'href="/texts/1?page=1"' in page
+    assert 'href="/texts/1?page=3"' in page
+
+
+def test_last_page_has_no_next_link(client: TestClient):
+    url = _create_long_text(client)
+    first = client.get(url).text
+    total_pages = _total_pages(first)
+    assert total_pages > 1
+
+    last = client.get(f"{url}?page={total_pages}").text
+
+    assert f"Page {total_pages} of {total_pages}" in last
+    assert f'href="/texts/1?page={total_pages + 1}"' not in last
+    assert "pager-link disabled" in last  # no Next on the last page
+
+
+def test_out_of_range_page_clamps_to_the_last_page(client: TestClient):
+    url = _create_long_text(client)
+    first = client.get(url).text
+    total_pages = _total_pages(first)
+
+    past_end = client.get(f"{url}?page={total_pages + 500}")
+    assert past_end.status_code == 200
+    assert f"Page {total_pages} of {total_pages}" in past_end.text
+
+    before_start = client.get(f"{url}?page=0")
+    assert before_start.status_code == 200
+    assert "Page 1 of" in before_start.text
+
+
+def test_one_page_stays_small(client: TestClient):
+    """W-21's acceptance: a long text's page stays under ~2 MB."""
+    url = _create_long_text(client)
+    page = client.get(url)
+
+    assert page.status_code == 200
+    assert len(page.content) < 2_000_000
+    assert page.text.count('class="word') <= TOKENS_PER_PAGE

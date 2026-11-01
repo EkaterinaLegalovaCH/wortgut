@@ -3,9 +3,11 @@
 These render HTML. JSON endpoints live in app/routes/api.py.
 """
 
+import math
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import get_session
@@ -15,6 +17,11 @@ from ..models import TextRecord, Token, UserWord
 from ..pipeline import ModelNotInstalled, tokenize
 
 router = APIRouter()
+
+# One page of the reader. A whole novel as a single response reached 34 MB and
+# 5.7 s (W-21); ~2,000 tokens keeps the page well under 2 MB while still giving
+# a decent stretch of reading.
+TOKENS_PER_PAGE = 2000
 
 
 def _templates(request: Request):
@@ -76,13 +83,31 @@ def _title_from(text: str) -> str:
 
 
 @router.get("/texts/{text_id}")
-def reader(text_id: int, request: Request, session: Session = Depends(get_session)):
+def reader(
+    text_id: int,
+    request: Request,
+    page: int = 1,
+    session: Session = Depends(get_session),
+):
     text_record = session.get(TextRecord, text_id)
     if text_record is None:
         raise HTTPException(status_code=404, detail="Text not found")
 
+    # A whole novel rendered as one page is tens of megabytes (W-21): the reader
+    # sends only one page of tokens at a time. Positions stay absolute, so word
+    # lookups and saved words behave exactly as before.
+    total_tokens = session.scalar(
+        select(func.count()).select_from(Token).where(Token.text_id == text_id)
+    ) or 0
+    total_pages = max(1, math.ceil(total_tokens / TOKENS_PER_PAGE))
+    page = min(max(page, 1), total_pages)
+
     tokens = session.scalars(
-        select(Token).where(Token.text_id == text_id).order_by(Token.position)
+        select(Token)
+        .where(Token.text_id == text_id)
+        .order_by(Token.position)
+        .offset((page - 1) * TOKENS_PER_PAGE)
+        .limit(TOKENS_PER_PAGE)
     ).all()
     saved_lemmas = set(session.scalars(select(UserWord.lemma)).all())
 
@@ -107,6 +132,10 @@ def reader(text_id: int, request: Request, session: Session = Depends(get_sessio
             "text": text_record,
             "rendered": rendered,
             "coverage": text_coverage(session, text_id),
+            "page": page,
+            "total_pages": total_pages,
+            "has_prev": page > 1,
+            "has_next": page < total_pages,
         },
     )
 

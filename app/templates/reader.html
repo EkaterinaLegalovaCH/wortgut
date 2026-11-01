@@ -26,7 +26,7 @@
   </p>
 </header>
 
-<article class="reader" data-text-id="{{ text.id }}">
+<article class="reader" data-text-id="{{ text.id }}" data-page="{{ page }}">
   {%- for token in rendered -%}
     {%- if token.is_word -%}
       <button type="button"
@@ -39,6 +39,22 @@
     {{ token.whitespace }}
   {%- endfor -%}
 </article>
+
+{% if total_pages > 1 %}
+<nav class="reader-pager" aria-label="Pages">
+  {% if has_prev %}
+    <a class="pager-link" href="/texts/{{ text.id }}?page={{ page - 1 }}" rel="prev">← Previous</a>
+  {% else %}
+    <span class="pager-link disabled">← Previous</span>
+  {% endif %}
+  <span class="pager-position">Page {{ page }} of {{ total_pages }}</span>
+  {% if has_next %}
+    <a class="pager-link" href="/texts/{{ text.id }}?page={{ page + 1 }}" rel="next">Next →</a>
+  {% else %}
+    <span class="pager-link disabled">Next →</span>
+  {% endif %}
+</nav>
+{% endif %}
 
 <p class="legend">
   <span class="word saved sample">saved</span> = already in your word list ·
