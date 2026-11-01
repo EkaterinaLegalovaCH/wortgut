@@ -30,6 +30,10 @@ class TextRecord(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[Optional[str]] = mapped_column(String(300))
     source_note: Mapped[Optional[str]] = mapped_column(Text)
+    # Provenance for imported texts: where it came from and under what licence.
+    # Both stay NULL for texts pasted by hand, which is the honest default.
+    source_url: Mapped[Optional[str]] = mapped_column(String(500))
+    license: Mapped[Optional[str]] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     tokens: Mapped[list["Token"]] = relationship(

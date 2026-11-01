@@ -50,13 +50,33 @@ def reset_engine() -> None:
     _engine = None
 
 
+# Columns added after the first schema shipped. `create_all` never alters an
+# existing table, so each one is added by an idempotent ALTER below. Keeping the
+# list here means the app starts against an older database without a manual step.
+_ADDED_TEXT_COLUMNS: dict[str, str] = {
+    "source_url": "VARCHAR(500)",
+    "license": "VARCHAR(300)",
+}
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    """Additive migration: add known-late columns to an existing `texts` table."""
+    with engine.connect() as connection:
+        existing = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(texts)")}
+        for name, ddl in _ADDED_TEXT_COLUMNS.items():
+            if name not in existing:
+                connection.exec_driver_sql(f"ALTER TABLE texts ADD COLUMN {name} {ddl}")
+        connection.commit()
+
+
 def create_schema(engine: Engine) -> None:
-    """Create tables if they are missing.
+    """Create tables if they are missing, then add late columns to old databases.
 
     create_all is deliberate for M0: single user, local file. Real migrations
     will replace this before the app is deployed.
     """
     Base.metadata.create_all(engine)
+    _add_missing_columns(engine)
 
 
 def get_session() -> Iterator[Session]:

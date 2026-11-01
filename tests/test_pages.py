@@ -113,3 +113,22 @@ def test_static_assets_are_served_locally(client: TestClient):
 
     assert css.status_code == 200 and "--reading-size" in css.text
     assert js.status_code == 200 and "api/lookup" in js.text
+
+
+HINT = "new = not yet confirmed as known"
+
+
+def test_reader_explains_what_new_means(client: TestClient):
+    """Decision 5 §2: the reader hint says what "new" counts."""
+    client.post("/texts", data={"title": "Testtext", "text": SAMPLE_TEXT}, follow_redirects=False)
+    page = client.get("/texts/1").text
+
+    assert HINT in page
+
+
+def test_library_explains_what_new_means(client: TestClient):
+    """The same wording appears wherever the library lists coverage."""
+    client.post("/texts", data={"title": "Testtext", "text": SAMPLE_TEXT}, follow_redirects=False)
+    page = client.get("/").text
+
+    assert HINT in page

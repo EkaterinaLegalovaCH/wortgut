@@ -62,6 +62,11 @@ uv run python scripts/import_dict.py     # ~26 s   → 517,000 dictionary entrie
 # 3b. Curate the placement-check word pool (~1 min, re-runnable)
 uv run python scripts/build_placement_pool.py
 
+# 3c. Import the public-domain library: ~42 German classics and mysteries.
+#     The text bodies download once into data/texts/ (gitignored) and are cached;
+#     re-running skips what is already in the database. Try --limit 3 first.
+uv run python scripts/import_texts.py
+
 # 4. Run it
 ./run.sh                                 # http://127.0.0.1:8000
 ```
@@ -334,6 +339,15 @@ published occurrence count.
 **spaCy + `de_core_news_sm`** — MIT-licensed tooling and model, downloaded as a
 Python package.
 
+**Library texts — Project Gutenberg** (W-8). `library/texts.json` (committed)
+lists 42 German classics, mysteries and adventure novels with author, death
+year, category, source URL and licence per title. The text bodies are **not**
+committed: `scripts/import_texts.py` downloads each one into `data/texts/`
+(gitignored) and caches it there. Every author in the manifest died more than 70
+years ago, so the works are public domain in Germany and Project Gutenberg marks
+them public domain in the USA; the manifest records that per title. Modern news
+texts stay manual paste and are never committed.
+
 ---
 
 ## Configuration
@@ -352,7 +366,7 @@ present. No secrets are used anywhere in M0.
 
 ## Tests
 
-`uv run pytest` — 127 tests, no network, no fixtures needed beyond the repo.
+`uv run pytest` — 139 tests, no network, no fixtures needed beyond the repo.
 
 - **Import parsers** against a tiny hand-written TEI fixture: lemmas, POS,
   multiple translations, umlauts, entries with no translation, idempotent
@@ -374,6 +388,12 @@ present. No secrets are used anywhere in M0.
   curated pool and from its own band, the dictionary-first word-class rule,
   the seed-normalisation regression, and a guard that
   `user_words`/`texts`/`tokens` counts are identical before and after a run.
+- **Library import** (W-8): the Gutenberg boilerplate stripper keeps the body and
+  leaves marker-less text alone; a text records its source URL and licence;
+  re-import is idempotent and skips already-present texts without downloading;
+  `word_status`/`user_words` row counts are identical before and after; and the
+  additive migration adds `source_url`/`license` to a pre-W-8 `texts` table.
+  The committed manifest is checked for 30–50 German public-domain entries.
 - **Known-word model**: seeding policies (`familiar`/`known`/`none`), seeding
   from ranks so function words get a status, lookup/save evidence surviving a
   re-seed, promotion only after repeated meetings, case-insensitive lemma keys,

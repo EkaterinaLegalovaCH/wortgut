@@ -30,6 +30,7 @@
 {% if texts %}
 <section class="recent">
   <h2>Recent texts</h2>
+  <p class="meta">{% include "_coverage_hint.html" %}</p>
   <ul class="text-list">
     {% for text, word_count in texts %}
     <li>

@@ -8,6 +8,8 @@
   <p class="meta">
     Added {{ text.created_at.strftime("%Y-%m-%d %H:%M") }}
     {% if text.source_note %} · {{ text.source_note }}{% endif %}
+    {% if text.source_url %} · <a href="{{ text.source_url }}" rel="noopener">source</a>{% endif %}
+    {% if text.license %} · {{ text.license }}{% endif %}
     · <a href="/">Paste another text</a>
   </p>
   <p class="coverage">
@@ -15,10 +17,11 @@
     {% if coverage.has_baseline %}
       <span class="hint">— counted per distinct word; {{ coverage.known_words }} of
       {{ coverage.rated_words }} rated words are familiar or known{% if coverage.unrated_words %};
-      {{ coverage.unrated_words }} have no frequency rank and are left out{% endif %}</span>
+      {{ coverage.unrated_words }} have no frequency rank and are left out{% endif %}.
+      {% include "_coverage_hint.html" %}</span>
     {% else %}
       <span class="hint">— <a href="/placement">take the placement check</a> and this
-      becomes a real percentage instead of a guess</span>
+      becomes a real percentage instead of a guess. {% include "_coverage_hint.html" %}</span>
     {% endif %}
   </p>
 </header>
