@@ -115,6 +115,15 @@ h2 { font-size: 1.2rem; margin: 2rem 0 0.5rem; }
 .text-list a { color: var(--accent); text-decoration: none; font-weight: 600; }
 .text-list a:hover { text-decoration: underline; }
 
+/* ---------- what to read next ---------- */
+
+.suggestions { margin: 2rem 0 1.5rem; }
+.suggestion-list { margin: 0.6rem 0 0; padding-left: 1.3rem; }
+.suggestion-list li { margin: 0.6rem 0; }
+.suggestion-list a { color: var(--accent); text-decoration: none; font-weight: 600; display: block; }
+.suggestion-list a:hover { text-decoration: underline; }
+.suggestion-list .meta { font-size: 0.85rem; color: var(--ink-soft); }
+
 /* ---------- reader ---------- */
 
 .reading-page { max-width: 40rem; }

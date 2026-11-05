@@ -27,17 +27,41 @@
   <button type="submit">Read it</button>
 </form>
 
+{% if suggestions %}
+<section class="suggestions">
+  <h2>What to read next</h2>
+  <p class="meta">{{ comfort_note }}</p>
+  <ol class="suggestion-list">
+    {% for suggestion in suggestions %}
+    <li>
+      <a href="/texts/{{ suggestion.text.id }}">{{ suggestion.text.title }}</a>
+      <span class="meta">{{ suggestion.why }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% elif texts %}
+<section class="suggestions">
+  <h2>What to read next</h2>
+  <p class="meta">
+    No ranking yet — <a href="/placement">take the placement check</a> and this
+    becomes a real suggestion instead of a guess.
+  </p>
+</section>
+{% endif %}
+
 {% if texts %}
 <section class="recent">
   <h2>Recent texts</h2>
   <p class="meta">{% include "_coverage_hint.html" %}</p>
   <ul class="text-list">
-    {% for text, word_count in texts %}
+    {% for text in texts %}
     <li>
       <a href="/texts/{{ text.id }}">{{ text.title }}</a>
       <span class="meta">
         {{ coverage[text.id].summary }}
-        · {{ word_count }} words · {{ text.created_at.strftime("%Y-%m-%d %H:%M") }}
+        · {{ coverage[text.id].total_words }} distinct words
+        · {{ text.created_at.strftime("%Y-%m-%d %H:%M") }}
       </span>
     </li>
     {% endfor %}

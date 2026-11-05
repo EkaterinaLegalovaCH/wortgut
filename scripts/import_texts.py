@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 
 from app.config import PROJECT_ROOT, get_settings  # noqa: E402
 from app.db import create_schema, make_engine  # noqa: E402
+from app.ranking import index_text_lemmas  # noqa: E402
 from app.knowledge import text_coverage  # noqa: E402
 from app.models import TextRecord, Token, UserWord, WordStatus  # noqa: E402
 from app.pipeline import ModelNotInstalled, tokenize  # noqa: E402
@@ -171,6 +172,8 @@ def import_text(session: Session, entry: dict, raw: str) -> ImportResult:
     ]
     for start in range(0, len(rows), TOKEN_BATCH):
         session.bulk_insert_mappings(Token, rows[start : start + TOKEN_BATCH])
+    session.commit()
+    index_text_lemmas(session, text_record.id)
     session.commit()
 
     return ImportResult(

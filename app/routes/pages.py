@@ -12,9 +12,10 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..knowledge import text_coverage
-from ..lookup import delete_user_word, list_texts
+from ..lookup import delete_user_word, recent_texts
 from ..models import TextRecord, Token, UserWord
 from ..pipeline import ModelNotInstalled, tokenize
+from ..ranking import comfort_note, coverage_by_text, index_text_lemmas, suggest_next_texts
 
 router = APIRouter()
 
@@ -30,12 +31,20 @@ def _templates(request: Request):
 
 @router.get("/")
 def home(request: Request, session: Session = Depends(get_session)):
-    texts = list_texts(session)
-    # Coverage per listed text: a handful of queries for a handful of texts, and
-    # it is the number that decides whether a text is worth reading right now.
-    coverage = {text.id: text_coverage(session, text.id) for text, _ in texts}
+    # One grouped query for the whole library instead of one coverage walk per
+    # text: 44 novels made the old loop the slowest part of the page.
+    coverage = coverage_by_text(session)
+    texts = recent_texts(session)
+    suggestions = suggest_next_texts(session, limit=5, coverage=coverage)
     return _templates(request).TemplateResponse(
-        request, "home.html", {"texts": texts, "coverage": coverage}
+        request,
+        "home.html",
+        {
+            "texts": texts,
+            "coverage": coverage,
+            "suggestions": suggestions,
+            "comfort_note": comfort_note(suggestions),
+        },
     )
 
 
@@ -72,6 +81,8 @@ def create_text(
         for draft in drafts
     ]
     session.add(text_record)
+    session.commit()
+    index_text_lemmas(session, text_record.id)
     session.commit()
     return RedirectResponse(url=f"/texts/{text_record.id}", status_code=303)
 

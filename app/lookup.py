@@ -130,18 +130,13 @@ def saved_lemma_counts(session: Session) -> dict[str, int]:
     return {lemma: count for lemma, count in rows}
 
 
-def list_texts(session: Session, limit: int = 20) -> list[tuple[TextRecord, int]]:
-    """Recent texts with their word counts, newest first."""
-    word_counts = (
-        select(Token.text_id, func.count(Token.id).label("n"))
-        .where(Token.is_word.is_(True))
-        .group_by(Token.text_id)
-        .subquery()
+def recent_texts(session: Session, limit: int = 20) -> list[TextRecord]:
+    """Newest texts first. Word counts come from the coverage map, not a
+    separate 2.6M-row tally over `tokens` (that query alone was 0.5 s)."""
+    return list(
+        session.scalars(
+            select(TextRecord)
+            .order_by(TextRecord.created_at.desc(), TextRecord.id.desc())
+            .limit(limit)
+        )
     )
-    rows = session.execute(
-        select(TextRecord, func.coalesce(word_counts.c.n, 0))
-        .outerjoin(word_counts, word_counts.c.text_id == TextRecord.id)
-        .order_by(TextRecord.created_at.desc(), TextRecord.id.desc())
-        .limit(limit)
-    ).all()
-    return [(text, int(count)) for text, count in rows]

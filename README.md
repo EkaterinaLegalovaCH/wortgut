@@ -30,6 +30,7 @@ genuinely usable end to end.
 | Score a run, store the profile | `POST /placement` | ✅ read-only for your vocabulary |
 | Result: label range, band table, flags | `GET /placement/{id}` | ✅ latest run at `/placement/latest` |
 | Coverage per text: "% known · N new words" | reader + home | ✅ M1 — counted per distinct word |
+| "What to read next": ranked library, with a why-line | `GET /` | ✅ M1 — a lower bound, says so when nothing is comfortable |
 | Known-word statuses: new → learning → familiar → known | `word_status` table | ✅ seeded by the placement check, corrected by real use |
 
 Not in M0: accounts, deployment, placement test, coverage scoring, vocabulary
@@ -121,6 +122,7 @@ Two steps are deliberately separated:
 | `app/routes/api.py` | JSON endpoints + `/health` + `/ready` |
 | `app/placement.py` | Item selection, scoring, label mapping — the placement check's logic |
 | `app/knowledge.py` | Statuses, seeding from a placement run, coverage per text |
+| `app/ranking.py` | Which text to read next: library-wide coverage in one query, ranking, the why-line |
 | `app/routes/placement.py` | Placement pages: form, submit, result |
 | `scripts/import_dict.py` | Streams the 450 MB TEI dictionary into `dict_entries` |
 | `scripts/import_freq.py` | Frequency list into `word_freq` |
@@ -310,6 +312,26 @@ With no placement run seeded, coverage reports *"no level yet"* instead of a 0%
 that would look like data — one lookup on a fresh install does not count as a
 baseline.
 
+### What to read next
+
+The home page ranks the library by the share of each text's **distinct words**
+that are already familiar or known. Two deliberate choices keep it honest:
+
+- **Not-rated words count as unknown**, so the score is a lower bound on
+  readability rather than a flattering average over words the app knows nothing
+  about.
+- **No baseline, no ranking.** Without a placement run the section says so
+  instead of inventing percentages.
+
+Texts under 500 distinct words are not offered as "next read" — a 50-word sample
+at 74% would otherwise beat every real book; they stay in the list below. When
+even the easiest book is far from comfortable, the page says that plainly.
+
+The ranking reads a derived table, `text_lemmas` (one row per distinct lemma per
+text), instead of walking 2.6M tokens: 0.4 s for the home page instead of 2.3 s.
+A test asserts the fast path and `text_coverage()` agree bucket by bucket, so
+the speedup cannot quietly change the numbers.
+
 Note on tables: `user_words` is the learner's own list (saved words, with a
 status for display), `word_status` is the model behind coverage. Saving writes
 both through one function so they cannot drift.
@@ -366,7 +388,7 @@ present. No secrets are used anywhere in M0.
 
 ## Tests
 
-`uv run pytest` — 139 tests, no network, no fixtures needed beyond the repo.
+`uv run pytest` — 158 tests, no network, no fixtures needed beyond the repo.
 
 - **Import parsers** against a tiny hand-written TEI fixture: lemmas, POS,
   multiple translations, umlauts, entries with no translation, idempotent
@@ -394,6 +416,12 @@ present. No secrets are used anywhere in M0.
   `word_status`/`user_words` row counts are identical before and after; and the
   additive migration adds `source_url`/`license` to a pre-W-8 `texts` table.
   The committed manifest is checked for 30–50 German public-domain entries.
+- **Choose-next-text ranking** (W-9): the fast library-wide coverage query agrees
+  with the per-text calculation bucket by bucket; unrated words never count as
+  known; a text with no rank evidence scores 0% rather than a guess; samples
+  under 500 distinct words are not offered as the next read (a small library
+  still suggests what it has); no placement baseline means no ranking at all;
+  and indexing a text twice leaves one row per lemma.
 - **Known-word model**: seeding policies (`familiar`/`known`/`none`), seeding
   from ranks so function words get a status, lookup/save evidence surviving a
   re-seed, promotion only after repeated meetings, case-insensitive lemma keys,
