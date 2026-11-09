@@ -32,6 +32,8 @@ genuinely usable end to end.
 | Coverage per text: "% known · N new words" | reader + home | ✅ M1 — counted per distinct word |
 | "What to read next": ranked library, with a why-line | `GET /` | ✅ M1 — a lower bound, says so when nothing is comfortable |
 | Known-word statuses: new → learning → familiar → known | `word_status` table | ✅ seeded by the placement check, corrected by real use |
+| Reading promotes words without a lookup | `POST /api/read-events` | ✅ W-10 — fired by a 20 s dwell, invisible while reading |
+| "I know this" for a word the model got wrong | reader popup → `POST /api/know` | ✅ W-10 — `familiar`, `source='reader'`, survives a re-seed |
 
 Not in M0: accounts, deployment, placement test, coverage scoring, vocabulary
 recycling, stats, TTS, EPUB import. See *Scope* below.
@@ -327,6 +329,21 @@ Texts under 500 distinct words are not offered as "next read" — a 50-word samp
 at 74% would otherwise beat every real book; they stay in the list below. When
 even the easiest book is far from comfortable, the page says that plainly.
 
+### Reading changes the model
+
+Until W-10 coverage could only fall: lookups and saves demoted words and nothing
+promoted them back, so `known` was an empty bucket by construction. Two writes
+close that loop:
+
+- **A read event.** Leaving a reader page visible for 20 s posts the page number
+  to `/api/read-events`; the server resolves the words from the same page window
+  it rendered (the browser cannot claim words it never showed) and gives each
+  distinct word one silent encounter. Two meetings move `new → learning`, three
+  more `learning → familiar`, three more `familiar → known`.
+- **"I know this".** One button in the existing popup writes `familiar` with
+  `source='reader'`. It works for a lemma with no frequency rank and no
+  dictionary entry — the case it exists for — and a re-seed keeps it.
+
 The ranking reads a derived table, `text_lemmas` (one row per distinct lemma per
 text), instead of walking 2.6M tokens: 0.4 s for the home page instead of 2.3 s.
 A test asserts the fast path and `text_coverage()` agree bucket by bucket, so
@@ -388,7 +405,7 @@ present. No secrets are used anywhere in M0.
 
 ## Tests
 
-`uv run pytest` — 158 tests, no network, no fixtures needed beyond the repo.
+`uv run pytest` — 169 tests, no network, no fixtures needed beyond the repo.
 
 - **Import parsers** against a tiny hand-written TEI fixture: lemmas, POS,
   multiple translations, umlauts, entries with no translation, idempotent
@@ -416,6 +433,14 @@ present. No secrets are used anywhere in M0.
   `word_status`/`user_words` row counts are identical before and after; and the
   additive migration adds `source_url`/`license` to a pre-W-8 `texts` table.
   The committed manifest is checked for 30–50 German public-domain entries.
+- **Learning loop** (W-10): the read-event route climbs a word
+  `new → learning → familiar → known` at the configured thresholds (proved
+  through the route, not the function), counts words the app has no status for
+  instead of inventing one, and leaves `texts`/`tokens` untouched; "I know this"
+  sets `familiar` with `source='reader'` even for a lemma with no rank and no
+  dictionary entry, rejects a blank lemma, and survives a re-seed; re-seeding
+  also keeps rows promoted by encounters — a regression test, because those are
+  not seed rows and used to collide on the primary key.
 - **Choose-next-text ranking** (W-9): the fast library-wide coverage query agrees
   with the per-text calculation bucket by bucket; unrated words never count as
   known; a text with no rank evidence scores 0% rather than a guess; samples

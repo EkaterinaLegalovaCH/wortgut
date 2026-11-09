@@ -22,6 +22,7 @@
     freq: document.getElementById("popup-freq"),
     input: document.getElementById("popup-input"),
     save: document.getElementById("popup-save"),
+    know: document.getElementById("popup-know"),
     close: document.getElementById("popup-close"),
     status: document.getElementById("popup-status"),
   };
@@ -98,6 +99,8 @@
         : "not in the frequency list";
 
       els.save.textContent = data.already_saved ? "Save again (+1 encounter)" : "Save word";
+      els.know.disabled = false;
+      els.know.textContent = "I know this";
       popup.hidden = false;
       placePopup(wordEl);
       current.element = wordEl;
@@ -133,6 +136,27 @@
     }
   }
 
+  async function markCurrentWordKnown() {
+    if (!current) return;
+    setStatus("marking…", false);
+    try {
+      const response = await fetch("/api/know", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lemma: current.lemma }),
+      });
+      if (!response.ok) throw new Error("mark failed with status " + response.status);
+      const data = await response.json();
+
+      if (current.element) current.element.classList.add("known");
+      setStatus("marked as known: " + data.lemma, false);
+      els.know.disabled = true;
+      els.know.textContent = "Known";
+    } catch (error) {
+      setStatus("Mark failed: " + error.message, true);
+    }
+  }
+
   function closePopup() {
     popup.hidden = true;
     current = null;
@@ -144,7 +168,48 @@
   });
 
   els.save.addEventListener("click", saveCurrentWord);
+  els.know.addEventListener("click", markCurrentWordKnown);
   els.close.addEventListener("click", closePopup);
+
+  /*
+   * A read event: the page counts as read once it has been visible for a while.
+   * No click per word, no per-word bookkeeping in the browser — just "this page
+   * was on screen long enough to have been read". The server resolves the words
+   * from the same page window it rendered, and fires at most once per page load,
+   * so coming back to a page and reading it again is another real encounter.
+   */
+  const DWELL_MS = 20000;
+  const pageNumber = Number(reader.dataset.page || "1");
+  let readTimer = null;
+  let readSent = false;
+
+  function sendReadEvent() {
+    if (readSent) return;
+    readSent = true;
+    fetch("/api/read-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text_id: Number(textId), page: pageNumber }),
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error("read event failed with status " + response.status);
+      })
+      .catch(function () {
+        // A failed write is retried once the page has been visible a while
+        // longer; the counts are evidence, not a guarantee.
+        readSent = false;
+        setTimeout(armReadTimer, DWELL_MS);
+      });
+  }
+
+  function armReadTimer() {
+    clearTimeout(readTimer);
+    if (readSent || document.visibilityState !== "visible") return;
+    readTimer = setTimeout(sendReadEvent, DWELL_MS);
+  }
+
+  document.addEventListener("visibilitychange", armReadTimer);
+  armReadTimer();
 
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") closePopup();

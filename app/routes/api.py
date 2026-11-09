@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_engine, get_session
-from ..knowledge import record_lookup
+from ..knowledge import mark_known, record_lookup, record_read_event
 from ..lookup import lookup, save_user_word
-from ..models import DictEntry, TextRecord
+from ..models import DictEntry, TextRecord, Token
 from ..pipeline import is_model_installed
+from ..reading import clamp_page, page_count, page_window
 
 router = APIRouter()
 
@@ -24,6 +25,21 @@ class WordIn(BaseModel):
     translation: str = Field(default="", max_length=500)
     text_id: int
     position: int = Field(ge=0)
+
+
+class ReadEventIn(BaseModel):
+    """What the reader page sends once a page has been read.
+
+    Only the page identity travels: the words are resolved server-side, so the
+    browser cannot inflate its own vocabulary by claiming words it never showed.
+    """
+
+    text_id: int = Field(ge=1)
+    page: int = Field(default=1, ge=1)
+
+
+class KnowIn(BaseModel):
+    lemma: str = Field(min_length=1, max_length=200)
 
 
 class HealthOut(BaseModel):
@@ -117,3 +133,53 @@ def api_save_word(payload: WordIn, session: Session = Depends(get_session)):
         "context_sentence": word.context_sentence,
         "target_lang": get_settings().target_lang,
     }
+
+
+@router.post("/api/read-events")
+def api_read_event(payload: ReadEventIn, session: Session = Depends(get_session)) -> dict:
+    """A reader page was read: every word on it gets one silent encounter.
+
+    Fired by the reader's dwell timer, not by a click per word. The words come
+    from the same page window the HTML route rendered, so encounters land on
+    words that were actually on screen. The response reports what happened —
+    words the app has no opinion about are counted, not silently dropped.
+    """
+    if session.get(TextRecord, payload.text_id) is None:
+        raise HTTPException(status_code=404, detail="Text not found")
+
+    total_tokens = session.scalar(
+        select(func.count()).select_from(Token).where(Token.text_id == payload.text_id)
+    ) or 0
+    page = clamp_page(payload.page, total_tokens)
+    offset, limit = page_window(page, total_tokens)
+
+    lemmas = session.scalars(
+        select(Token.lemma)
+        .where(Token.text_id == payload.text_id, Token.is_word.is_(True))
+        .order_by(Token.position)
+        .offset(offset)
+        .limit(limit)
+    ).all()
+
+    result = record_read_event(session, list(lemmas))
+    return {
+        "text_id": payload.text_id,
+        "page": page,
+        "total_pages": page_count(total_tokens),
+        **result,
+    }
+
+
+@router.post("/api/know")
+def api_mark_known(payload: KnowIn, session: Session = Depends(get_session)) -> dict:
+    """The learner says they know this word: 'familiar', source 'reader'.
+
+    Works for any lemma, including one with no frequency rank and no dictionary
+    entry — that case is why the action exists.
+    """
+    lemma = payload.lemma.strip()
+    if not lemma:
+        raise HTTPException(status_code=422, detail="lemma must not be blank")
+
+    row = mark_known(session, lemma)
+    return {"lemma": row.lemma, "status": row.status, "source": row.source}

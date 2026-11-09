@@ -152,6 +152,10 @@ h2 { font-size: 1.2rem; margin: 2rem 0 0.5rem; }
 .word.saved { background: var(--saved-soft); color: var(--saved); font-weight: 600; }
 .word.saved:hover, .word.saved:focus-visible { background: #cfe8db; }
 
+/* A word the reader said they know: quieter than "saved", which is a to-do. */
+.word.known { background: var(--accent-soft); }
+.word.known:hover, .word.known:focus-visible { background: #e9dccd; }
+
 .sample { font-size: 1rem; padding: 0.1em 0.4em; }
 
 .punct { white-space: pre-wrap; }
@@ -252,6 +256,15 @@ h2 { font-size: 1.2rem; margin: 2rem 0 0.5rem; }
   cursor: pointer;
 }
 .popup-actions button:hover { background: #653c19; }
+
+/* "I know this" is her verdict, not a save: secondary weight on purpose. */
+.popup-actions button.know {
+  background: var(--card);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.popup-actions button.know:hover { background: var(--accent-soft); }
+.popup-actions button.know:disabled { opacity: 0.6; cursor: default; }
 
 .popup-status { min-height: 1.1rem; margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--saved); }
 .popup-status.error { color: var(--danger); }

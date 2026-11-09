@@ -3,8 +3,6 @@
 These render HTML. JSON endpoints live in app/routes/api.py.
 """
 
-import math
-
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
@@ -16,13 +14,9 @@ from ..lookup import delete_user_word, recent_texts
 from ..models import TextRecord, Token, UserWord
 from ..pipeline import ModelNotInstalled, tokenize
 from ..ranking import comfort_note, coverage_by_text, index_text_lemmas, suggest_next_texts
+from ..reading import TOKENS_PER_PAGE, clamp_page, page_count, page_window  # noqa: F401  (re-exported)
 
 router = APIRouter()
-
-# One page of the reader. A whole novel as a single response reached 34 MB and
-# 5.7 s (W-21); ~2,000 tokens keeps the page well under 2 MB while still giving
-# a decent stretch of reading.
-TOKENS_PER_PAGE = 2000
 
 
 def _templates(request: Request):
@@ -110,15 +104,16 @@ def reader(
     total_tokens = session.scalar(
         select(func.count()).select_from(Token).where(Token.text_id == text_id)
     ) or 0
-    total_pages = max(1, math.ceil(total_tokens / TOKENS_PER_PAGE))
-    page = min(max(page, 1), total_pages)
+    page = clamp_page(page, total_tokens)
+    total_pages = page_count(total_tokens)
+    offset, limit = page_window(page, total_tokens)
 
     tokens = session.scalars(
         select(Token)
         .where(Token.text_id == text_id)
         .order_by(Token.position)
-        .offset((page - 1) * TOKENS_PER_PAGE)
-        .limit(TOKENS_PER_PAGE)
+        .offset(offset)
+        .limit(limit)
     ).all()
     saved_lemmas = set(session.scalars(select(UserWord.lemma)).all())
 

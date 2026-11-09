@@ -191,9 +191,14 @@ def seed_from_placement(
         ).all()
     }
 
+    # Every row that did not come from a previous seed is real evidence and must
+    # be preserved: lookups, saves, a reader's "I know this" (source='reader')
+    # and words already promoted by encounters (source='encounter'). The delete
+    # below only clears `placement` rows, so a preserved row that is also in the
+    # ranked list would collide on the primary key if it were re-inserted.
     evidence = set(
         session.scalars(
-            select(WordStatus.lemma).where(WordStatus.source.in_(("lookup", "save")))
+            select(WordStatus.lemma).where(WordStatus.source != "placement")
         ).all()
     )
 
@@ -278,6 +283,25 @@ def save_word(session: Session, *, lemma: str, translation: str, context: str | 
     return word
 
 
+def _advance(row: WordStatus) -> bool:
+    """One silent encounter with a word. Returns True when the status climbed.
+
+    The rule lives here so the single-word `promote()` and the bulk read event
+    cannot drift: a word climbs only after repeated meetings without a lookup.
+    """
+    row.encounters = (row.encounters or 0) + 1
+    needed = PROMOTION_ENCOUNTERS.get(row.status, 99)
+    promoted = False
+    if row.encounters >= needed and row.status in STATUS_RANK:
+        next_rank = min(STATUS_RANK[row.status] + 1, len(STATUSES) - 1)
+        row.status = STATUSES[next_rank]
+        row.source = "encounter"
+        row.encounters = 0
+        promoted = True
+    row.updated_at = _now()
+    return promoted
+
+
 def promote(session: Session, lemma: str) -> str:
     """One more encounter with a word that was not looked up: maybe promote it.
 
@@ -288,16 +312,65 @@ def promote(session: Session, lemma: str) -> str:
     if row is None:
         return UNRATED
 
-    row.encounters = (row.encounters or 0) + 1
-    needed = PROMOTION_ENCOUNTERS.get(row.status, 99)
-    if row.encounters >= needed and row.status in STATUS_RANK:
-        next_rank = min(STATUS_RANK[row.status] + 1, len(STATUSES) - 1)
-        row.status = STATUSES[next_rank]
-        row.source = "encounter"
-        row.encounters = 0
-    row.updated_at = _now()
+    _advance(row)
     session.commit()
     return row.status
+
+
+def record_read_event(session: Session, lemmas: list[str]) -> dict[str, object]:
+    """A page was read: every word on it gets one silent encounter.
+
+    Returns what actually happened, so the route can report it instead of
+    claiming success: words the app has no status for are counted as `unrated`
+    and are left alone ("no opinion" stays no opinion), and `promoted_lemmas`
+    names the words that climbed, which is the only visible effect of reading.
+
+    One commit for the whole page: a novel page holds several hundred distinct
+    words, and committing per word would make the timer sluggish.
+    """
+    keys = list(dict.fromkeys(key(lemma) for lemma in lemmas))
+    if not keys:
+        return {"words": 0, "seen": 0, "unrated": 0, "promoted": 0, "promoted_lemmas": []}
+
+    rows = {
+        row.lemma: row
+        for row in session.scalars(select(WordStatus).where(WordStatus.lemma.in_(keys)))
+    }
+    seen = 0
+    unrated = 0
+    promoted_lemmas: list[str] = []
+    for lemma in keys:
+        row = rows.get(lemma)
+        if row is None:
+            unrated += 1  # met, but the app still has no opinion about it
+            continue
+        seen += 1
+        if _advance(row):
+            promoted_lemmas.append(lemma)
+    session.commit()
+
+    return {
+        "words": len(keys),
+        "seen": seen,
+        "unrated": unrated,
+        "promoted": len(promoted_lemmas),
+        "promoted_lemmas": promoted_lemmas,
+    }
+
+
+def mark_known(session: Session, lemma: str) -> WordStatus:
+    """The learner says they know this word: 'familiar', from the reader.
+
+    Their word beats the model, including for a lemma with no frequency rank and
+    no dictionary entry — which is exactly the case this exists for (archaic
+    spellings, compounds, spaCy's occasional bad lemma). `source='reader'` keeps
+    it distinguishable from a lookup or a placement seed, and re-seeding keeps it.
+    """
+    row = _upsert(session, lemma, status="familiar", source="reader")
+    row.encounters = 0
+    session.commit()
+    return row
+
 
 
 def key(lemma: str) -> str:
