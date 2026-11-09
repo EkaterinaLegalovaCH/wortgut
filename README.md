@@ -68,7 +68,13 @@ uv run python scripts/build_placement_pool.py
 # 3c. Import the public-domain library: ~42 German classics and mysteries.
 #     The text bodies download once into data/texts/ (gitignored) and are cached;
 #     re-running skips what is already in the database. Try --limit 3 first.
-uv run python scripts/import_texts.py
+#
+#     This is the slow step: ~15 MB of downloads and 2.6M tokens through spaCy,
+#     15-25 minutes on a laptop. It is safe to interrupt — a text is committed
+#     as a whole, and re-running resumes where it stopped. Run it without a
+#     timeout (e.g. in tmux, or `nohup ... > import.log 2>&1 &`) rather than in
+#     a 5-minute shell window.
+uv run python scripts/import_texts.py 2>&1 | tee data/import_texts.log
 
 # 4. Run it
 ./run.sh                                 # http://127.0.0.1:8000
