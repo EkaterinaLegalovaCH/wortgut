@@ -94,6 +94,40 @@ Run the tests with `uv run pytest`.
 
 ---
 
+## Reading on your phone
+
+The app listens on loopback only, so a phone cannot reach it directly. A
+**Cloudflare quick tunnel** gives it a temporary public HTTPS URL — no account,
+no cost, nothing to sign up for:
+
+```bash
+# 1. Start the app the way it will run on a server (no --reload, one worker)
+HOST=127.0.0.1 PORT=8099 ./run.sh
+
+# 2. In a second terminal, open the tunnel
+cloudflared tunnel --url http://127.0.0.1:8099
+```
+
+`cloudflared` prints a URL like `https://<words>.trycloudflare.com`. Open it
+on the phone and read.
+
+Two limitations, both deliberate for a one-person week of use and neither
+acceptable for other people:
+
+- **The URL changes every time the tunnel restarts.** Nothing is registered, so
+  there is no fixed address to bookmark.
+- **A quick tunnel is unauthenticated.** Anyone who has the URL can read the
+  library *and* write to it — saved words, statuses, read events. Do not share
+  the URL, and do not leave the tunnel running when the laptop is unattended.
+
+Do not put the live URL in this repository or in a handoff file; it is a bearer
+credential.
+
+`cloudflared` is a host tool, not an application dependency: it is not in
+`pyproject.toml`, and the app still runs with the network off.
+
+---
+
 ## How it works
 
 ```
