@@ -9,10 +9,10 @@ Design notes:
   lemma, re-saving the same word bumps `encounters` instead of duplicating.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -134,6 +134,10 @@ class WordStatus(Base):
     band_index: Mapped[Optional[int]] = mapped_column(Integer)  # frequency band, when known
     source: Mapped[str] = mapped_column(String(20), default="new")
     encounters: Mapped[int] = mapped_column(Integer, default=0)
+    # The calendar day this word last earned an encounter credit from reading.
+    # One credit per lemma per day, so a page reloaded eight times does not walk
+    # a word to `known` in eight seconds. NULL means "never credited".
+    last_credited_day: Mapped[Optional[date]] = mapped_column(Date)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

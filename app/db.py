@@ -53,19 +53,27 @@ def reset_engine() -> None:
 # Columns added after the first schema shipped. `create_all` never alters an
 # existing table, so each one is added by an idempotent ALTER below. Keeping the
 # list here means the app starts against an older database without a manual step.
-_ADDED_TEXT_COLUMNS: dict[str, str] = {
-    "source_url": "VARCHAR(500)",
-    "license": "VARCHAR(300)",
+# Keyed by table; the names are module constants, never user input.
+_ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    "texts": {
+        "source_url": "VARCHAR(500)",
+        "license": "VARCHAR(300)",
+    },
+    "word_status": {
+        # W-22: one encounter credit per lemma per calendar day.
+        "last_credited_day": "DATE",
+    },
 }
 
 
 def _add_missing_columns(engine: Engine) -> None:
-    """Additive migration: add known-late columns to an existing `texts` table."""
+    """Additive migration: add known-late columns to existing tables."""
     with engine.connect() as connection:
-        existing = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(texts)")}
-        for name, ddl in _ADDED_TEXT_COLUMNS.items():
-            if name not in existing:
-                connection.exec_driver_sql(f"ALTER TABLE texts ADD COLUMN {name} {ddl}")
+        for table, columns in _ADDED_COLUMNS.items():
+            existing = {row[1] for row in connection.exec_driver_sql(f"PRAGMA table_info({table})")}
+            for name, ddl in columns.items():
+                if name not in existing:
+                    connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
         connection.commit()
 
 

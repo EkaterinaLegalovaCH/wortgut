@@ -346,6 +346,11 @@ close that loop:
   it rendered (the browser cannot claim words it never showed) and gives each
   distinct word one silent encounter. Two meetings move `new → learning`, three
   more `learning → familiar`, three more `familiar → known`.
+  **One credit per lemma per calendar day** (W-22): a page reloaded all evening
+  is still one meeting, so those eight meetings mean eight days of reading. The
+  response reports `skipped_same_day`, so the refusal is visible rather than
+  silent. Lookups, saves and "I know this" are explicit actions and are not
+  capped.
 - **"I know this".** One button in the existing popup writes `familiar` with
   `source='reader'`. It works for a lemma with no frequency rank and no
   dictionary entry — the case it exists for — and a re-seed keeps it.
@@ -411,7 +416,7 @@ present. No secrets are used anywhere in M0.
 
 ## Tests
 
-`uv run pytest` — 169 tests, no network, no fixtures needed beyond the repo.
+`uv run pytest` — 179 tests, no network, no fixtures needed beyond the repo.
 
 - **Import parsers** against a tiny hand-written TEI fixture: lemmas, POS,
   multiple translations, umlauts, entries with no translation, idempotent
@@ -447,6 +452,13 @@ present. No secrets are used anywhere in M0.
   dictionary entry, rejects a blank lemma, and survives a re-seed; re-seeding
   also keeps rows promoted by encounters — a regression test, because those are
   not seed rows and used to collide on the primary key.
+- **Dwell day-cap** (W-22): eight read events on one page in one day leave
+  `encounters` at 1 and report `skipped_same_day`; the next day's event credits a
+  second; a `new` word promotes on its second *day*, not its second reload; one
+  word still reaches `known` in eight days (2/3/3 credits); a second text on the
+  same day does not credit again; unrated words gain no row; lookups are not
+  capped; and the additive migration adds `last_credited_day` to an old
+  `word_status` table without touching its data.
 - **Choose-next-text ranking** (W-9): the fast library-wide coverage query agrees
   with the per-text calculation bucket by bucket; unrated words never count as
   known; a text with no rank evidence scores 0% rather than a guess; samples

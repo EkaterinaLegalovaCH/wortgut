@@ -16,6 +16,14 @@ from app.models import PlacementRun, TextRecord, Token, WordFreq, WordStatus
 TEXT = "Der Wolf lief durch den dunklen Wald."
 
 
+def _read_on(client: TestClient, text_id: int, monkeypatch, day) -> dict:
+    """A read event as if it were `day` — W-22 caps credits per calendar day."""
+    monkeypatch.setattr("app.knowledge.credit_day", lambda: day)
+    response = client.post("/api/read-events", json={"text_id": text_id, "page": 1})
+    assert response.status_code == 200
+    return response.json()
+
+
 def _create_text(client: TestClient) -> int:
     response = client.post(
         "/texts", data={"title": "Wald", "text": TEXT}, follow_redirects=False
@@ -51,34 +59,43 @@ def _counts() -> tuple[int, int, int]:
         )
 
 
-def test_read_event_promotes_a_word_after_repeated_reads(client: TestClient):
-    """Acceptance 1: the route itself moves a word, not a unit test of promote()."""
+def test_read_event_promotes_a_word_after_repeated_reads(client: TestClient, monkeypatch):
+    """Acceptance 1: the route itself moves a word, not a unit test of promote().
+
+    One credit per day since W-22, so the second meeting is the next day's read.
+    """
+    from datetime import date, timedelta
+
+    day = date(2026, 1, 1)
     text_id = _create_text(client)
     _set_status("wolf", "new", 0)
 
-    first = client.post("/api/read-events", json={"text_id": text_id, "page": 1})
-    assert first.status_code == 200
-    body = first.json()
-    assert body["page"] == 1 and body["total_pages"] == 1
-    assert body["seen"] > 0
+    first = _read_on(client, text_id, monkeypatch, day)
+    assert first["page"] == 1 and first["total_pages"] == 1
+    assert first["seen"] > 0
     assert _row("wolf") == ("new", "placement", 1)  # one meeting is not enough
 
-    second = client.post("/api/read-events", json={"text_id": text_id, "page": 1})
-    promoted = second.json()["promoted_lemmas"]
-    assert "wolf" in promoted
+    second = _read_on(client, text_id, monkeypatch, day + timedelta(days=1))
+    assert "wolf" in second["promoted_lemmas"]
     assert _row("wolf") == ("learning", "encounter", 0)
 
 
-def test_read_event_reaches_the_next_step_at_the_configured_threshold(client: TestClient):
-    """The route uses PROMOTION_ENCOUNTERS, not a number of its own."""
+def test_read_event_reaches_the_next_step_at_the_configured_threshold(client: TestClient, monkeypatch):
+    """The route uses PROMOTION_ENCOUNTERS, not a number of its own.
+
+    Since W-22 each credit is a separate day, so the loop walks days.
+    """
+    from datetime import date, timedelta
+
+    day = date(2026, 2, 1)
     text_id = _create_text(client)
     _set_status("wald", "learning", 0)
 
-    for _ in range(PROMOTION_ENCOUNTERS["learning"] - 1):
-        client.post("/api/read-events", json={"text_id": text_id, "page": 1})
+    for offset in range(PROMOTION_ENCOUNTERS["learning"] - 1):
+        _read_on(client, text_id, monkeypatch, day + timedelta(days=offset))
     assert _row("wald") == ("learning", "placement", PROMOTION_ENCOUNTERS["learning"] - 1)
 
-    client.post("/api/read-events", json={"text_id": text_id, "page": 1})
+    _read_on(client, text_id, monkeypatch, day + timedelta(days=PROMOTION_ENCOUNTERS["learning"] - 1))
     assert _row("wald") == ("familiar", "encounter", 0)
 
 

@@ -32,7 +32,7 @@ Design notes:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -283,12 +283,29 @@ def save_word(session: Session, *, lemma: str, translation: str, context: str | 
     return word
 
 
-def _advance(row: WordStatus) -> bool:
-    """One silent encounter with a word. Returns True when the status climbed.
+def credit_day() -> date:
+    """The calendar day a reading encounter counts against.
 
-    The rule lives here so the single-word `promote()` and the bulk read event
-    cannot drift: a word climbs only after repeated meetings without a lookup.
+    One definition, read off the same UTC clock as `_now()`, so `promote()` and
+    the read event can never disagree about what "today" is. A learner in CET
+    sees the day roll over at 01:00 local; a second, local definition would be
+    worse than an early boundary.
     """
+    return _now().date()
+
+
+def _advance(row: WordStatus, day: date) -> tuple[bool, bool]:
+    """One encounter with a word — at most one credit per calendar day.
+
+    Returns `(promoted, credited)`. The day cap lives here, next to the
+    thresholds, so `promote()` and `record_read_event()` cannot drift apart: a
+    page reloaded eight times credits a word once, and "met twice" therefore
+    means two days of reading rather than two seconds.
+    """
+    if row.last_credited_day == day:
+        return False, False
+
+    row.last_credited_day = day
     row.encounters = (row.encounters or 0) + 1
     needed = PROMOTION_ENCOUNTERS.get(row.status, 99)
     promoted = False
@@ -299,38 +316,49 @@ def _advance(row: WordStatus) -> bool:
         row.encounters = 0
         promoted = True
     row.updated_at = _now()
-    return promoted
+    return promoted, True
 
 
 def promote(session: Session, lemma: str) -> str:
     """One more encounter with a word that was not looked up: maybe promote it.
 
-    Deliberately table-driven and slow: a word has to be met several times
-    without needing help before the model stops calling it new.
+    Deliberately table-driven and slow: a word has to be met on several separate
+    days, without needing help, before the model stops calling it new.
     """
     row = session.get(WordStatus, key(lemma))
     if row is None:
         return UNRATED
 
-    _advance(row)
+    _advance(row, credit_day())
     session.commit()
     return row.status
 
 
-def record_read_event(session: Session, lemmas: list[str]) -> dict[str, object]:
-    """A page was read: every word on it gets one silent encounter.
+def record_read_event(
+    session: Session, lemmas: list[str], *, day: date | None = None
+) -> dict[str, object]:
+    """A page was read: each word on it may earn one encounter for this day.
 
     Returns what actually happened, so the route can report it instead of
     claiming success: words the app has no status for are counted as `unrated`
-    and are left alone ("no opinion" stays no opinion), and `promoted_lemmas`
-    names the words that climbed, which is the only visible effect of reading.
+    and are left alone ("no opinion" stays no opinion), `promoted_lemmas` names
+    the words that climbed, and `skipped_same_day` counts the words that already
+    had their credit today — the visible half of the day cap.
 
     One commit for the whole page: a novel page holds several hundred distinct
     words, and committing per word would make the timer sluggish.
     """
     keys = list(dict.fromkeys(key(lemma) for lemma in lemmas))
+    day = day or credit_day()
     if not keys:
-        return {"words": 0, "seen": 0, "unrated": 0, "promoted": 0, "promoted_lemmas": []}
+        return {
+            "words": 0,
+            "seen": 0,
+            "unrated": 0,
+            "promoted": 0,
+            "promoted_lemmas": [],
+            "skipped_same_day": 0,
+        }
 
     rows = {
         row.lemma: row
@@ -338,6 +366,7 @@ def record_read_event(session: Session, lemmas: list[str]) -> dict[str, object]:
     }
     seen = 0
     unrated = 0
+    skipped = 0
     promoted_lemmas: list[str] = []
     for lemma in keys:
         row = rows.get(lemma)
@@ -345,7 +374,10 @@ def record_read_event(session: Session, lemmas: list[str]) -> dict[str, object]:
             unrated += 1  # met, but the app still has no opinion about it
             continue
         seen += 1
-        if _advance(row):
+        promoted_here, credited = _advance(row, day)
+        if not credited:
+            skipped += 1
+        if promoted_here:
             promoted_lemmas.append(lemma)
     session.commit()
 
@@ -355,6 +387,7 @@ def record_read_event(session: Session, lemmas: list[str]) -> dict[str, object]:
         "unrated": unrated,
         "promoted": len(promoted_lemmas),
         "promoted_lemmas": promoted_lemmas,
+        "skipped_same_day": skipped,
     }
 
 

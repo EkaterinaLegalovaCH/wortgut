@@ -227,23 +227,34 @@ def test_saving_a_word_sets_the_same_status_in_both_tables(session: Session):
     assert session.get(WordStatus, "hund").source == "save"
 
 
-def test_promotion_needs_repeated_meetings(session: Session):
-    """A word met once is still new; it has to earn each step."""
+def test_promotion_needs_repeated_meetings(session: Session, monkeypatch):
+    """A word met once is still new; each step needs a separate day (W-22's cap)."""
+    from datetime import date, timedelta
+
+    today = [date(2026, 3, 1)]
+    monkeypatch.setattr("app.knowledge.credit_day", lambda: today[0])
+
+    def meet(count: int) -> list[str]:
+        seen = []
+        for _ in range(count):
+            today[0] += timedelta(days=1)
+            seen.append(promote(session, "Zelt"))
+        return seen
+
     record_lookup(session, "Zelt")            # creates learning, encounters 1
     row = session.get(WordStatus, "zelt")
     row.status = "new"
     row.encounters = 0
+    row.last_credited_day = None
     session.commit()
 
     needed = PROMOTION_ENCOUNTERS["new"]
-    for _ in range(needed - 1):
-        assert promote(session, "Zelt") == "new"
-    assert promote(session, "Zelt") == "learning"
+    assert meet(needed - 1) == ["new"] * (needed - 1)
+    assert meet(1) == ["learning"]
 
     needed = PROMOTION_ENCOUNTERS["learning"]
-    for _ in range(needed - 1):
-        assert promote(session, "Zelt") == "learning"
-    assert promote(session, "Zelt") == "familiar"
+    assert meet(needed - 1) == ["learning"] * (needed - 1)
+    assert meet(1) == ["familiar"]
 
 
 def test_status_map_defaults_unknown_lemmas_to_unrated(session: Session):
