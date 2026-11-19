@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .knowledge import save_word
+from .knowledge import key, save_word
 from .layout import DisplayToken, sentence_around
+from .lemmas import fix_lemma
 from .models import DictEntry, TextRecord, Token, UserWord, WordFreq
 
 DICT_SOURCE = "freedict-deu-eng"
@@ -54,6 +55,36 @@ def find_translations(session: Session, lemma: str) -> list[str]:
     return list(rows)
 
 
+def find_translations_for(session: Session, lemma: str, surface: str) -> list[str]:
+    """Translations for a tapped word: try its lemma, then the word as written.
+
+    The dictionary is keyed on headwords that are often inflected — it has
+    `verdunkelte` and `Kähne` but not `verdunkeln` or `Kahn` — while spaCy hands
+    back the base form. Searching only the lemma is why a learner taps a plain
+    word and is told "no entry found" although the exact word she tapped is in
+    the dictionary (11,536 forms in the live library).
+
+    Order matters: the lemma is the better key when both match (its entries
+    describe the word, not one inflection), so it is tried first and the
+    surface form is the fallback, not the default.
+    """
+    translations = find_translations(session, lemma)
+    if translations:
+        return translations
+
+    # Repaired lemma first, so an old row with `eur` still answers as `euer`.
+    repaired = fix_lemma(lemma)
+    if repaired != lemma:
+        translations = find_translations(session, repaired)
+        if translations:
+            return translations
+
+    if surface and key(surface) != key(lemma):
+        return find_translations(session, surface)
+    return []
+
+
+
 def find_frequency(session: Session, surface: str, lemma: str) -> tuple[int, int] | None:
     """(rank, count) for the word form if listed, else for its lemma."""
     for candidate in (surface.lower(), lemma.lower()):
@@ -71,13 +102,17 @@ def lookup(session: Session, text_id: int, position: int) -> LookupResult | None
     if token is None:
         return None
 
-    translations = find_translations(session, token.lemma)
-    frequency = find_frequency(session, token.surface, token.lemma)
-    existing = session.scalar(select(UserWord).where(UserWord.lemma == token.lemma))
+    # A row written before the repair table existed still carries the broken
+    # lemma (`eur`, `lächelen`). Repair it on the way out so the popup shows a
+    # real word and the status is keyed on the word she will meet again.
+    lemma = fix_lemma(token.lemma)
+    translations = find_translations_for(session, lemma, token.surface)
+    frequency = find_frequency(session, token.surface, lemma)
+    existing = session.scalar(select(UserWord).where(UserWord.lemma == lemma))
 
     return LookupResult(
         surface=token.surface,
-        lemma=token.lemma,
+        lemma=lemma,
         pos=token.pos,
         translations=translations,
         frequency_rank=frequency[0] if frequency else None,

@@ -16,6 +16,8 @@ import spacy
 from spacy.language import Language
 from spacy.tokens import Doc, Token
 
+from .lemmas import fix_lemma
+
 MODEL_NAME = "de_core_news_sm"
 
 # spaCy refuses documents over 1,000,000 characters and its parser needs about
@@ -162,7 +164,10 @@ def _tokenize_chunk(doc: Doc, start_position: int) -> list[TokenDraft]:
         TokenDraft(
             position=start_position + offset,
             surface=token.text,
-            lemma=token.lemma_ or token.text,
+            # Repaired on the way in, so a new text never stores a lemma the
+            # dictionary cannot answer (`eur`, `lächelen`). Existing texts were
+            # repaired once by scripts/fix_lemmas.py.
+            lemma=fix_lemma(token.lemma_ or token.text),
             pos=token.pos_,
             is_word=token.is_alpha,
             whitespace=normalize_whitespace(whitespace),
