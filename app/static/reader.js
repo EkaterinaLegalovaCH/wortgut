@@ -34,16 +34,58 @@
     els.status.classList.toggle("error", Boolean(isError));
   }
 
+  /*
+   * Put the popup where it can actually be read. Two rules, in order:
+   *
+   * 1. Below the word if it fits there, otherwise ABOVE it. Always opening
+   *    downwards meant a word in the top half of a phone screen pushed the
+   *    "Save word" / "I know this" buttons under the bottom edge, and the
+   *    learner had to scroll the page to reach them (friction log, 2026-11-19).
+   * 2. If it fits neither above nor below (a long entry on a short screen),
+   *    cap the height to the viewport and let it scroll internally. The popup
+   *    stays fully on screen; the buttons stay reachable.
+   */
   function placePopup(anchor) {
     const box = anchor.getBoundingClientRect();
-    const top = window.scrollY + box.bottom + 8;
+    const margin = 8;
+
+    // Measure the natural size with any previous constraint cleared, otherwise
+    // a popup that was clamped for one word stays clamped for the next.
+    popup.style.maxHeight = "";
+    popup.style.overflowY = "";
+    const height = popup.offsetHeight;
     const popupWidth = popup.offsetWidth || 340;
+
+    const viewportH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    const viewportW = document.documentElement.clientWidth;
+    const spaceBelow = viewportH - box.bottom - margin;
+    const spaceAbove = box.top - margin;
+
+    let top;
+    if (height <= spaceBelow) {
+      top = box.bottom + margin;
+    } else if (height <= spaceAbove) {
+      top = box.top - height - margin;
+    } else if (height <= viewportH - margin * 2) {
+      // Fits the screen, but not on either side of the word (a long entry with
+      // the word mid-screen). Keep it as close to the word as possible while
+      // staying fully visible, rather than jumping to the top edge.
+      top = Math.min(box.bottom + margin, viewportH - height - margin);
+      top = Math.max(margin, top);
+    } else {
+      // Taller than the whole screen: cap it and let the popup scroll inside.
+      popup.style.maxHeight = Math.max(160, viewportH - margin * 2) + "px";
+      popup.style.overflowY = "auto";
+      top = margin;
+    }
+
     const left = Math.max(
       8,
-      Math.min(window.scrollX + box.left, window.scrollX + document.documentElement.clientWidth - popupWidth - 8)
+      Math.min(box.left, viewportW - popupWidth - 8)
     );
-    popup.style.top = top + "px";
-    popup.style.left = left + "px";
+
+    popup.style.top = window.scrollY + Math.max(margin, top) + "px";
+    popup.style.left = window.scrollX + left + "px";
   }
 
   function renderTranslations(translations) {
